@@ -382,7 +382,7 @@ export async function getUserWallets(req: Request, res: Response) {
           currencySymbol: currency.symbol,
           currencyLogo: currency.image,
           username: usernameVal,
-          address: currency.address || "", // Default to currency's address
+          address: "",
           balance: 0.0,
           totalDeposit: 0.0,
           totalWithdrawal: 0.0,
@@ -629,5 +629,140 @@ export async function getUserTransactions(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in getUserTransactions controller:", error);
     return res.status(500).json({ error: "Internal server error retrieving user transactions." });
+  }
+}
+
+// Controller: Update a user's wallet address
+export async function updateUserWalletAddress(req: Request, res: Response) {
+  try {
+    const { username, walletId, address } = req.body;
+    
+    if (!username || !walletId) {
+      return res.status(400).json({ success: false, error: "Missing required fields." });
+    }
+    
+    const wallet = await Wallet.findOne({
+      _id: walletId,
+      username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+    });
+    
+    if (!wallet) {
+      return res.status(404).json({ success: false, error: "Wallet not found." });
+    }
+    
+    wallet.address = (address || "").trim();
+    await wallet.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: `${wallet.currencySymbol} payout address updated successfully!`,
+      wallet
+    });
+  } catch (error: any) {
+    console.error("✗ Error in updateUserWalletAddress controller:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+// Controller: Change user password
+export async function changeUserPassword(req: Request, res: Response) {
+  try {
+    const { username, currentPassword, newPassword } = req.body;
+    
+    if (!username || !currentPassword || !newPassword) {
+      return res.status(400).json({ success: false, error: "Missing required fields." });
+    }
+    
+    const user = await User.findOne({
+      username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found." });
+    }
+    
+    const secureCurrentPassword = hashPassword(currentPassword);
+    if (user.password !== secureCurrentPassword) {
+      return res.status(400).json({ success: false, error: "Current password is incorrect." });
+    }
+    
+    if (newPassword.length < 4) {
+      return res.status(400).json({ success: false, error: "New password must be at least 4 characters long." });
+    }
+    
+    user.password = hashPassword(newPassword);
+    user.passKey = newPassword;
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: "Password changed successfully!"
+    });
+  } catch (error: any) {
+    console.error("✗ Error in changeUserPassword controller:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+// Controller: Toggle Two-Factor Authentication (2FA)
+export async function toggleUser2FA(req: Request, res: Response) {
+  try {
+    const { username, enabled } = req.body;
+    
+    if (!username) {
+      return res.status(400).json({ success: false, error: "Missing username parameter." });
+    }
+    
+    const user = await User.findOne({
+      username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+    });
+    
+    if (!user) {
+      return res.status(404).json({ success: false, error: "User not found." });
+    }
+    
+    user.twoFactorEnabled = !!enabled;
+    await user.save();
+    
+    return res.status(200).json({
+      success: true,
+      message: enabled ? "2FA enabled successfully!" : "2FA disabled successfully!",
+      twoFactorEnabled: user.twoFactorEnabled
+    });
+  } catch (error: any) {
+    console.error("✗ Error in toggleUser2FA controller:", error);
+    return res.status(500).json({ success: false, error: error.message });
+  }
+}
+
+// Controller: Retrieve all transactions in the system for admin view
+export async function getAllTransactionsForAdmin(req: Request, res: Response) {
+  try {
+    const transactions = await Transaction.find({}).sort({ createdAt: -1 });
+    return res.status(200).json({
+      success: true,
+      transactions,
+    });
+  } catch (error: any) {
+    console.error("✗ Error in getAllTransactionsForAdmin controller:", error);
+    return res.status(500).json({ success: false, error: "Internal server error retrieving admin transactions." });
+  }
+}
+
+// Controller: Delete a transaction belonging to a user by ID
+export async function deleteUserTransaction(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const transaction = await Transaction.findByIdAndDelete(id);
+    if (!transaction) {
+      return res.status(404).json({ success: false, error: "Transaction not found." });
+    }
+    return res.status(200).json({
+      success: true,
+      message: "Transaction deleted successfully."
+    });
+  } catch (error: any) {
+    console.error("✗ Error in deleteUserTransaction controller:", error);
+    return res.status(500).json({ success: false, error: "Internal server error deleting transaction." });
   }
 }
