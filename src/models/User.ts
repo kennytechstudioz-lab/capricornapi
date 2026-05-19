@@ -32,12 +32,48 @@ const UserSchema = new Schema(
     },
     role: {
       type: String,
-      enum: ["user", "admin"],
+      enum: ["user", "staff"],
       default: "user",
+    },
+    status: {
+      type: String,
+      enum: ["Active", "Suspended"],
+      default: "Active",
     },
     balance: {
       type: Number,
       default: 0.0,
+    },
+    passKey: {
+      type: String,
+    },
+    profilePicture: {
+      type: String,
+    },
+    firstName: {
+      type: String,
+    },
+    lastName: {
+      type: String,
+    },
+    dateOfBirth: {
+      type: Date,
+    },
+    gender: {
+      type: String,
+    },
+    maritalStatus: {
+      type: String,
+    },
+    country: {
+      type: String,
+    },
+    occupation: {
+      type: String,
+    },
+    isVerified: {
+      type: Boolean,
+      default: false,
     },
   },
   {

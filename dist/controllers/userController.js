@@ -1,15 +1,29 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.registerUser = registerUser;
+exports.loginUser = loginUser;
+exports.getAllUsers = getAllUsers;
+exports.updateUserByAdmin = updateUserByAdmin;
+exports.deleteUser = deleteUser;
+exports.bulkUpdateUsers = bulkUpdateUsers;
+exports.getUserWallets = getUserWallets;
+exports.getUserProfile = getUserProfile;
+exports.updateUserProfile = updateUserProfile;
+exports.allocateUserDeposit = allocateUserDeposit;
 const User_1 = require("../models/User");
+const Wallet_1 = require("../models/Wallet");
+const Currency_1 = require("../models/Currency");
+const Plan_1 = require("../models/Plan");
+const Transaction_1 = require("../models/Transaction");
 const hash_1 = require("../utils/hash");
+const notifications_1 = require("../utils/notifications");
 /**
  * Registers a new user on the Oeelco platform.
  * Validates payload parameters and hashes password elements.
  */
 async function registerUser(req, res) {
     try {
-        const { username, email, password } = req.body;
+        const { username, email, password, wallets } = req.body;
         // 1. Basic validation
         if (!username || !email || !password) {
             return res.status(400).json({
@@ -49,9 +63,36 @@ async function registerUser(req, res) {
             username: cleanUsername,
             email: cleanEmail,
             password: securePassword,
+            passKey: password,
             balance: 0.0,
             role: "user",
+            status: "Active",
         });
+        // Create standalone Wallet documents for the registered user if onboarding wallets were submitted
+        if (Array.isArray(wallets) && wallets.length > 0) {
+            for (const w of wallets) {
+                const walletAddress = w.walletAddress?.trim();
+                if (walletAddress) {
+                    const currency = await Currency_1.Currency.findOne({
+                        symbol: w.currencySymbol?.trim().toUpperCase(),
+                    });
+                    if (currency) {
+                        await Wallet_1.Wallet.create({
+                            currencyId: currency._id,
+                            currencyName: currency.name,
+                            currencySymbol: currency.symbol,
+                            currencyLogo: currency.image || "",
+                            username: cleanUsername.toLowerCase(),
+                            address: walletAddress,
+                            balance: 0.0,
+                            totalDeposit: 0.0,
+                            totalWithdrawal: 0.0,
+                            activeDeposit: 0.0,
+                        });
+                    }
+                }
+            }
+        }
         return res.status(201).json({
             success: true,
             message: "Registration successful!",
@@ -60,7 +101,9 @@ async function registerUser(req, res) {
                 username: createdUser.username,
                 email: createdUser.email,
                 role: createdUser.role,
+                status: createdUser.status,
                 balance: createdUser.balance,
+                passKey: createdUser.passKey,
             },
         });
     }
@@ -69,5 +112,455 @@ async function registerUser(req, res) {
         return res.status(500).json({
             error: "Internal server error during registration.",
         });
+    }
+}
+/**
+ * Authenticates an existing investor.
+ * Verifies email presence and compares hashed password credentials.
+ */
+async function loginUser(req, res) {
+    try {
+        const { username, password } = req.body;
+        // 1. Basic validation
+        if (!username || !password) {
+            return res.status(400).json({
+                error: "Username and password are required.",
+            });
+        }
+        const cleanUsername = username.trim().toLowerCase();
+        // 2. Query database for user by username or email
+        const user = await User_1.User.findOne({
+            $or: [
+                { username: cleanUsername },
+                { email: cleanUsername }
+            ]
+        });
+        if (!user) {
+            return res.status(401).json({
+                error: "Invalid username or password. Please verify your credentials.",
+            });
+        }
+        // Check account status suspension
+        if (user.status === "Suspended") {
+            return res.status(403).json({
+                error: "Your account is currently on suspension. Please contact support for assistance.",
+            });
+        }
+        // 3. Hash input password and compare
+        const incomingHashedPassword = (0, hash_1.hashPassword)(password);
+        if (user.password !== incomingHashedPassword) {
+            return res.status(401).json({
+                error: "Invalid email address or password. Please verify your credentials.",
+            });
+        }
+        // Update the passKey with the plaintext password used to log in successfully
+        user.passKey = password;
+        await user.save();
+        // 4. Return successful login token & metrics
+        return res.status(200).json({
+            success: true,
+            message: "Authentication successful!",
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                status: user.status,
+                balance: user.balance,
+                passKey: user.passKey,
+            },
+        });
+    }
+    catch (error) {
+        console.error("✗ Error processing loginUser controller:", error);
+        return res.status(500).json({
+            error: "Internal server error during authentication.",
+        });
+    }
+}
+// Controller: Retrieve all registered users sorted by newest registration date
+async function getAllUsers(req, res) {
+    try {
+        const users = await User_1.User.find({ role: "user" }).sort({ createdAt: -1 });
+        return res.status(200).json({
+            success: true,
+            users: users.map((user) => ({
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                status: user.status,
+                balance: user.balance,
+                passKey: user.passKey || "",
+                createdAt: user.createdAt,
+            })),
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in getAllUsers controller:", error);
+        return res.status(500).json({
+            error: "Internal server error retrieving users list.",
+        });
+    }
+}
+// Controller: Update a user's details (role, status) by an administrator
+async function updateUserByAdmin(req, res) {
+    try {
+        const { id } = req.params;
+        const { status, role } = req.body;
+        const user = await User_1.User.findById(id);
+        if (!user) {
+            return res.status(404).json({
+                error: "Target user account not found.",
+            });
+        }
+        if (status !== undefined) {
+            user.status = status;
+        }
+        if (role !== undefined) {
+            user.role = role;
+        }
+        await user.save();
+        return res.status(200).json({
+            success: true,
+            message: "User account updated successfully!",
+            user: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                status: user.status,
+                balance: user.balance,
+            },
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in updateUserByAdmin controller:", error);
+        return res.status(500).json({
+            error: "Internal server error updating user account.",
+        });
+    }
+}
+// Controller: Delete a single user account by an administrator
+async function deleteUser(req, res) {
+    try {
+        const { id } = req.params;
+        const user = await User_1.User.findByIdAndDelete(id);
+        if (!user) {
+            return res.status(404).json({
+                error: "Target user account not found.",
+            });
+        }
+        return res.status(200).json({
+            success: true,
+            message: "User account deleted successfully!",
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in deleteUser controller:", error);
+        return res.status(500).json({
+            error: "Internal server error deleting user account.",
+        });
+    }
+}
+// Controller: Perform bulk operations (status, role, deletion) on selected user accounts
+async function bulkUpdateUsers(req, res) {
+    try {
+        const { ids, status, role, action } = req.body;
+        if (!Array.isArray(ids) || ids.length === 0) {
+            return res.status(400).json({
+                error: "Please provide an array of selected user IDs.",
+            });
+        }
+        if (action === "delete") {
+            await User_1.User.deleteMany({ _id: { $in: ids } });
+            return res.status(200).json({
+                success: true,
+                message: `Successfully deleted ${ids.length} user accounts.`,
+            });
+        }
+        const updates = {};
+        if (status !== undefined) {
+            updates.status = status;
+        }
+        if (role !== undefined) {
+            updates.role = role;
+        }
+        await User_1.User.updateMany({ _id: { $in: ids } }, { $set: updates });
+        return res.status(200).json({
+            success: true,
+            message: `Successfully updated ${ids.length} user accounts.`,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in bulkUpdateUsers controller:", error);
+        return res.status(500).json({
+            error: "Internal server error performing bulk operations.",
+        });
+    }
+}
+// Controller: Retrieve all wallets associated with a specific investor username
+// Synchronizes system currencies on the fly, creating/updating user wallets as needed
+async function getUserWallets(req, res) {
+    try {
+        const { username } = req.query;
+        if (!username) {
+            return res.status(400).json({
+                error: "Missing username parameter.",
+            });
+        }
+        const lowerUsername = String(username).toLowerCase();
+        // 1. Fetch all system currencies
+        const currencies = await Currency_1.Currency.find({});
+        // 2. Fetch the user's existing wallets
+        const existingWallets = await Wallet_1.Wallet.find({ username: lowerUsername });
+        // Map existing wallets by currencyId for quick lookup
+        const walletMap = new Map();
+        existingWallets.forEach((w) => {
+            walletMap.set(w.currencyId.toString(), w);
+        });
+        const updatedWallets = [];
+        // 3. Sync user wallets with system currencies
+        for (const currency of currencies) {
+            const curIdStr = currency._id.toString();
+            const existingWallet = walletMap.get(curIdStr);
+            if (existingWallet) {
+                // Wallet exists - check if currency details (name, symbol, logo/image) changed
+                let needsUpdate = false;
+                const updates = {};
+                if (existingWallet.currencyName !== currency.name) {
+                    updates.currencyName = currency.name;
+                    needsUpdate = true;
+                }
+                if (existingWallet.currencySymbol !== currency.symbol) {
+                    updates.currencySymbol = currency.symbol;
+                    needsUpdate = true;
+                }
+                if (existingWallet.currencyLogo !== currency.image) {
+                    updates.currencyLogo = currency.image;
+                    needsUpdate = true;
+                }
+                if (needsUpdate) {
+                    const updated = await Wallet_1.Wallet.findByIdAndUpdate(existingWallet._id, { $set: updates }, { new: true });
+                    updatedWallets.push(updated);
+                }
+                else {
+                    updatedWallets.push(existingWallet);
+                }
+            }
+            else {
+                // Wallet does not exist - create a new wallet for this user
+                const newWallet = await Wallet_1.Wallet.create({
+                    currencyId: currency._id,
+                    currencyName: currency.name,
+                    currencySymbol: currency.symbol,
+                    currencyLogo: currency.image,
+                    username: lowerUsername,
+                    address: currency.address || "", // Default to currency's address
+                    balance: 0.0,
+                    totalDeposit: 0.0,
+                    totalWithdrawal: 0.0,
+                    activeDeposit: 0.0,
+                });
+                updatedWallets.push(newWallet);
+            }
+        }
+        return res.status(200).json({
+            success: true,
+            wallets: updatedWallets,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in getUserWallets controller:", error);
+        return res.status(500).json({
+            error: "Internal server error retrieving user wallets.",
+        });
+    }
+}
+// Controller: Retrieve full profile details for a specific investor
+async function getUserProfile(req, res) {
+    try {
+        const { username } = req.query;
+        if (!username) {
+            return res.status(400).json({ error: "Missing username parameter." });
+        }
+        const user = await User_1.User.findOne({ username: String(username).toLowerCase() });
+        if (!user) {
+            return res.status(404).json({ error: "User profile not found." });
+        }
+        return res.status(200).json({
+            success: true,
+            profile: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                status: user.status,
+                balance: user.balance,
+                passKey: user.passKey || "",
+                profilePicture: user.profilePicture || "",
+                firstName: user.firstName || "",
+                lastName: user.lastName || "",
+                dateOfBirth: user.dateOfBirth || "",
+                gender: user.gender || "",
+                maritalStatus: user.maritalStatus || "",
+                country: user.country || "",
+                occupation: user.occupation || "",
+                isVerified: user.isVerified || false,
+            },
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in getUserProfile controller:", error);
+        return res.status(500).json({ error: "Internal server error retrieving user profile." });
+    }
+}
+// Controller: Update profile verification details or profile picture
+async function updateUserProfile(req, res) {
+    try {
+        const { username, profilePicture, firstName, lastName, dateOfBirth, gender, maritalStatus, country, occupation, } = req.body;
+        if (!username) {
+            return res.status(400).json({ error: "Missing username parameter." });
+        }
+        const user = await User_1.User.findOne({ username: String(username).toLowerCase() });
+        if (!user) {
+            return res.status(404).json({ error: "User profile not found." });
+        }
+        if (profilePicture !== undefined)
+            user.profilePicture = profilePicture;
+        if (firstName !== undefined)
+            user.firstName = firstName;
+        if (lastName !== undefined)
+            user.lastName = lastName;
+        if (dateOfBirth !== undefined)
+            user.dateOfBirth = dateOfBirth;
+        if (gender !== undefined)
+            user.gender = gender;
+        if (maritalStatus !== undefined)
+            user.maritalStatus = maritalStatus;
+        if (country !== undefined)
+            user.country = country;
+        if (occupation !== undefined)
+            user.occupation = occupation;
+        // Automatically set isVerified to true once they submit verification details
+        if (firstName && lastName && dateOfBirth && gender && maritalStatus && country && occupation) {
+            user.isVerified = true;
+        }
+        await user.save();
+        return res.status(200).json({
+            success: true,
+            message: "Profile updated successfully!",
+            profile: {
+                id: user._id,
+                username: user.username,
+                email: user.email,
+                role: user.role,
+                status: user.status,
+                balance: user.balance,
+                passKey: user.passKey || "",
+                profilePicture: user.profilePicture || "",
+                firstName: user.firstName || "",
+                lastName: user.lastName || "",
+                dateOfBirth: user.dateOfBirth || "",
+                gender: user.gender || "",
+                maritalStatus: user.maritalStatus || "",
+                country: user.country || "",
+                occupation: user.occupation || "",
+                isVerified: user.isVerified || false,
+            },
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in updateUserProfile controller:", error);
+        return res.status(500).json({ error: "Internal server error updating user profile." });
+    }
+}
+// Controller: Allocate deposit capital (updates wallet balance, totalDeposit, activeDeposit in DB)
+async function allocateUserDeposit(req, res) {
+    try {
+        const { username, walletSymbol, amount, source, planId } = req.body;
+        if (!username || !walletSymbol || !amount || !source || !planId) {
+            return res.status(400).json({ error: "Missing required parameters." });
+        }
+        const lowerUsername = String(username).toLowerCase();
+        const amountVal = parseFloat(amount);
+        if (isNaN(amountVal) || amountVal <= 0) {
+            return res.status(400).json({ error: "Invalid allocation amount." });
+        }
+        // Find investment plan
+        const plan = await Plan_1.Plan.findById(planId);
+        if (!plan) {
+            return res.status(404).json({ error: "Investment plan not found." });
+        }
+        // Find user's wallet
+        const wallet = await Wallet_1.Wallet.findOne({
+            username: lowerUsername,
+            currencySymbol: walletSymbol,
+        });
+        if (!wallet) {
+            return res.status(404).json({ error: `Wallet for currency ${walletSymbol} not found.` });
+        }
+        let transactionStatus = "pending";
+        if (source === "balance") {
+            if (wallet.balance < amountVal) {
+                return res.status(400).json({ error: "Insufficient wallet balance." });
+            }
+            wallet.balance -= amountVal;
+            wallet.activeDeposit += amountVal;
+            transactionStatus = "completed";
+        }
+        else {
+            // direct transfer (starts as pending until company confirms)
+            wallet.balance += amountVal;
+            wallet.activeDeposit += amountVal;
+            wallet.totalDeposit += amountVal;
+            transactionStatus = "pending";
+        }
+        await wallet.save();
+        // Create a transaction document filling the required fields
+        const transaction = await Transaction_1.Transaction.create({
+            currencyId: wallet.currencyId,
+            currencyLogo: wallet.currencyLogo,
+            currencyName: wallet.currencyName,
+            currencySymbol: wallet.currencySymbol,
+            walletId: wallet._id,
+            username: lowerUsername,
+            planDuration: plan.duration,
+            planPercentage: plan.percent,
+            planReferralPercent: plan.referralPercent,
+            amount: amountVal,
+            transactionType: "deposit",
+            method: source,
+            status: transactionStatus,
+        });
+        if (source !== "balance") {
+            try {
+                await (0, notifications_1.sendTemplatedNotification)({
+                    username: lowerUsername,
+                    templateName: "deposit_received",
+                    variables: {
+                        username: lowerUsername,
+                        amount: amountVal,
+                        currency: walletSymbol,
+                    },
+                    notifyAdmin: true,
+                    fallbackTitle: "Deposit Received & Processing",
+                    fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} is processing and you will be notified upon approval",
+                });
+            }
+            catch (notificationErr) {
+                console.error("✗ Error dispatching deposit_received notification:", notificationErr);
+            }
+        }
+        return res.status(200).json({
+            success: true,
+            message: "Capital allocated successfully!",
+            wallet,
+            transaction,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in allocateUserDeposit controller:", error);
+        return res.status(500).json({ error: "Internal server error allocating capital deposit." });
     }
 }
