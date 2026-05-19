@@ -508,15 +508,13 @@ async function allocateUserDeposit(req, res) {
             wallet.balance -= amountVal;
             wallet.activeDeposit += amountVal;
             transactionStatus = "completed";
+            await wallet.save();
         }
         else {
             // direct transfer (starts as pending until company confirms)
-            wallet.balance += amountVal;
-            wallet.activeDeposit += amountVal;
-            wallet.totalDeposit += amountVal;
+            // Balances are NOT updated here. They will be updated upon admin approval.
             transactionStatus = "pending";
         }
-        await wallet.save();
         // Create a transaction document filling the required fields
         const transaction = await Transaction_1.Transaction.create({
             currencyId: wallet.currencyId,

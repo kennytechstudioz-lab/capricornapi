@@ -40,7 +40,7 @@ export async function registerUser(req: Request, res: Response) {
     }
 
     // 4. Duplicate checks
-    const existingUsername = await User.findOne({ username: cleanUsername.toLowerCase() });
+    const existingUsername = await User.findOne({ username: { $regex: new RegExp("^" + cleanUsername + "$", "i") } });
     if (existingUsername) {
       return res.status(400).json({
         error: "Username is already in use by another investor.",
@@ -80,7 +80,7 @@ export async function registerUser(req: Request, res: Response) {
               currencyName: currency.name,
               currencySymbol: currency.symbol,
               currencyLogo: currency.image || "",
-              username: cleanUsername.toLowerCase(),
+              username: cleanUsername,
               address: walletAddress,
               balance: 0.0,
               totalDeposit: 0.0,
@@ -128,13 +128,13 @@ export async function loginUser(req: Request, res: Response) {
       });
     }
 
-    const cleanUsername = username.trim().toLowerCase();
+    const cleanUsername = username.trim();
 
     // 2. Query database for user by username or email
     const user = await User.findOne({
       $or: [
-        { username: cleanUsername },
-        { email: cleanUsername }
+        { username: { $regex: new RegExp("^" + cleanUsername + "$", "i") } },
+        { email: cleanUsername.toLowerCase() }
       ]
     });
     if (!user) {
@@ -325,13 +325,13 @@ export async function getUserWallets(req: Request, res: Response) {
       });
     }
 
-    const lowerUsername = String(username).toLowerCase();
+    const usernameVal = String(username);
 
     // 1. Fetch all system currencies
     const currencies = await Currency.find({});
 
     // 2. Fetch the user's existing wallets
-    const existingWallets = await Wallet.find({ username: lowerUsername });
+    const existingWallets = await Wallet.find({ username: { $regex: new RegExp("^" + usernameVal + "$", "i") } });
 
     // Map existing wallets by currencyId for quick lookup
     const walletMap = new Map();
@@ -381,7 +381,7 @@ export async function getUserWallets(req: Request, res: Response) {
           currencyName: currency.name,
           currencySymbol: currency.symbol,
           currencyLogo: currency.image,
-          username: lowerUsername,
+          username: usernameVal,
           address: currency.address || "", // Default to currency's address
           balance: 0.0,
           totalDeposit: 0.0,
@@ -413,7 +413,7 @@ export async function getUserProfile(req: Request, res: Response) {
       return res.status(400).json({ error: "Missing username parameter." });
     }
 
-    const user = await User.findOne({ username: String(username).toLowerCase() });
+    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username) + "$", "i") } });
     if (!user) {
       return res.status(404).json({ error: "User profile not found." });
     }
@@ -464,7 +464,7 @@ export async function updateUserProfile(req: Request, res: Response) {
       return res.status(400).json({ error: "Missing username parameter." });
     }
 
-    const user = await User.findOne({ username: String(username).toLowerCase() });
+    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username) + "$", "i") } });
     if (!user) {
       return res.status(404).json({ error: "User profile not found." });
     }
@@ -522,7 +522,7 @@ export async function allocateUserDeposit(req: Request, res: Response) {
       return res.status(400).json({ error: "Missing required parameters." });
     }
 
-    const lowerUsername = String(username).toLowerCase();
+    const usernameVal = String(username);
     const amountVal = parseFloat(amount);
 
     if (isNaN(amountVal) || amountVal <= 0) {
@@ -537,7 +537,7 @@ export async function allocateUserDeposit(req: Request, res: Response) {
 
     // Find user's wallet
     const wallet = await Wallet.findOne({
-      username: lowerUsername,
+      username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
       currencySymbol: walletSymbol,
     });
 
@@ -554,15 +554,12 @@ export async function allocateUserDeposit(req: Request, res: Response) {
       wallet.balance -= amountVal;
       wallet.activeDeposit += amountVal;
       transactionStatus = "completed";
+      await wallet.save();
     } else {
       // direct transfer (starts as pending until company confirms)
-      wallet.balance += amountVal;
-      wallet.activeDeposit += amountVal;
-      wallet.totalDeposit += amountVal;
+      // Balances are NOT updated here. They will be updated upon admin approval.
       transactionStatus = "pending";
     }
-
-    await wallet.save();
 
     // Create a transaction document filling the required fields
     const transaction = await Transaction.create({
@@ -571,7 +568,7 @@ export async function allocateUserDeposit(req: Request, res: Response) {
       currencyName: wallet.currencyName,
       currencySymbol: wallet.currencySymbol,
       walletId: wallet._id,
-      username: lowerUsername,
+      username: usernameVal,
       planDuration: plan.duration,
       planPercentage: plan.percent,
       planReferralPercent: plan.referralPercent,
@@ -584,10 +581,10 @@ export async function allocateUserDeposit(req: Request, res: Response) {
     if (source !== "balance") {
       try {
         await sendTemplatedNotification({
-          username: lowerUsername,
+          username: usernameVal,
           templateName: "deposit_received",
           variables: {
-            username: lowerUsername,
+            username: usernameVal,
             amount: amountVal,
             currency: walletSymbol,
           },
@@ -609,5 +606,28 @@ export async function allocateUserDeposit(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in allocateUserDeposit controller:", error);
     return res.status(500).json({ error: "Internal server error allocating capital deposit." });
+  }
+}
+
+// Controller: Retrieve all transactions associated with a specific investor username
+export async function getUserTransactions(req: Request, res: Response) {
+  try {
+    const { username } = req.query;
+    if (!username) {
+      return res.status(400).json({ error: "Missing username parameter." });
+    }
+
+    const usernameVal = String(username);
+
+    const transactions = await Transaction.find({ username: { $regex: new RegExp("^" + usernameVal + "$", "i") } })
+      .sort({ createdAt: -1 });
+
+    return res.status(200).json({
+      success: true,
+      transactions,
+    });
+  } catch (error: any) {
+    console.error("✗ Error in getUserTransactions controller:", error);
+    return res.status(500).json({ error: "Internal server error retrieving user transactions." });
   }
 }

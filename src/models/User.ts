@@ -6,7 +6,6 @@ const UserSchema = new Schema(
       type: String,
       required: [true, "Username is required."],
       unique: true,
-      lowercase: true,
       trim: true,
       validate: {
         validator: function (v: string) {

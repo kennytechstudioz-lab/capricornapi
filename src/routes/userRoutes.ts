@@ -10,6 +10,7 @@ import {
   getUserProfile,
   updateUserProfile,
   allocateUserDeposit,
+  getUserTransactions,
 } from "../controllers/userController";
 
 const router = Router();
@@ -22,6 +23,9 @@ router.post("/deposit", allocateUserDeposit);
 
 // Route: GET /api/users/profile (Retrieve user's verification details & profilePicture)
 router.get("/profile", getUserProfile);
+
+// Route: GET /api/users/transactions (Retrieve user's transactions)
+router.get("/transactions", getUserTransactions);
 
 // Route: PUT /api/users/profile (Update user's verification details & profilePicture)
 router.put("/profile", updateUserProfile);
