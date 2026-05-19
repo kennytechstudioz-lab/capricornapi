@@ -12,8 +12,12 @@ let io: Server | null = null;
 export function initSocket(httpServer: HttpServer): Server {
   io = new Server(httpServer, {
     cors: {
-      origin: "*", // Allows developer connections across port interfaces
+      origin: (requestOrigin, callback) => {
+        // Dynamically allow the requesting origin to satisfy browser CORS policies (including credentials & polling)
+        callback(null, true);
+      },
       methods: ["GET", "POST", "PATCH", "DELETE"],
+      credentials: true,
     },
   });
 
