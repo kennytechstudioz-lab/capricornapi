@@ -14,8 +14,12 @@ let io = null;
 function initSocket(httpServer) {
     io = new socket_io_1.Server(httpServer, {
         cors: {
-            origin: "*", // Allows developer connections across port interfaces
+            origin: (requestOrigin, callback) => {
+                // Dynamically allow the requesting origin to satisfy browser CORS policies (including credentials & polling)
+                callback(null, true);
+            },
             methods: ["GET", "POST", "PATCH", "DELETE"],
+            credentials: true,
         },
     });
     io.on("connection", (socket) => {

@@ -10,20 +10,37 @@ exports.getUserWallets = getUserWallets;
 exports.getUserProfile = getUserProfile;
 exports.updateUserProfile = updateUserProfile;
 exports.allocateUserDeposit = allocateUserDeposit;
+exports.getUserTransactions = getUserTransactions;
+exports.updateUserWalletAddress = updateUserWalletAddress;
+exports.changeUserPassword = changeUserPassword;
+exports.toggleUser2FA = toggleUser2FA;
+exports.getAllTransactionsForAdmin = getAllTransactionsForAdmin;
+exports.deleteUserTransaction = deleteUserTransaction;
+exports.updateTransactionStatusByAdmin = updateTransactionStatusByAdmin;
+exports.getActiveDeposits = getActiveDeposits;
+exports.getAllActiveDepositsForAdmin = getAllActiveDepositsForAdmin;
+exports.deleteActiveDeposit = deleteActiveDeposit;
+exports.getUserEarnings = getUserEarnings;
+exports.getAllEarningsForAdmin = getAllEarningsForAdmin;
+exports.deleteEarning = deleteEarning;
+exports.getUserReferrals = getUserReferrals;
 const User_1 = require("../models/User");
 const Wallet_1 = require("../models/Wallet");
 const Currency_1 = require("../models/Currency");
 const Plan_1 = require("../models/Plan");
 const Transaction_1 = require("../models/Transaction");
+const ActiveDeposit_1 = require("../models/ActiveDeposit");
+const Earning_1 = require("../models/Earning");
+const Referral_1 = require("../models/Referral");
 const hash_1 = require("../utils/hash");
 const notifications_1 = require("../utils/notifications");
 /**
- * Registers a new user on the Oeelco platform.
+ * Registers a new user on the Capricorn Energy Ltd platform.
  * Validates payload parameters and hashes password elements.
  */
 async function registerUser(req, res) {
     try {
-        const { username, email, password, wallets } = req.body;
+        const { username, email, password, wallets, referredBy } = req.body;
         // 1. Basic validation
         if (!username || !email || !password) {
             return res.status(400).json({
@@ -45,7 +62,7 @@ async function registerUser(req, res) {
             });
         }
         // 4. Duplicate checks
-        const existingUsername = await User_1.User.findOne({ username: cleanUsername.toLowerCase() });
+        const existingUsername = await User_1.User.findOne({ username: cleanUsername });
         if (existingUsername) {
             return res.status(400).json({
                 error: "Username is already in use by another investor.",
@@ -82,7 +99,7 @@ async function registerUser(req, res) {
                             currencyName: currency.name,
                             currencySymbol: currency.symbol,
                             currencyLogo: currency.image || "",
-                            username: cleanUsername.toLowerCase(),
+                            username: cleanUsername,
                             address: walletAddress,
                             balance: 0.0,
                             totalDeposit: 0.0,
@@ -90,6 +107,34 @@ async function registerUser(req, res) {
                             activeDeposit: 0.0,
                         });
                     }
+                }
+            }
+        }
+        // Handle Referral association if referredBy exists
+        if (referredBy) {
+            const cleanReferredBy = referredBy.trim();
+            if (cleanReferredBy) {
+                // Create the Referral document
+                await Referral_1.Referral.create({
+                    username: cleanUsername,
+                    referredBy: cleanReferredBy,
+                    commission: 0,
+                });
+                // Send a notification to the referrer with referral_signup template
+                try {
+                    await (0, notifications_1.sendTemplatedNotification)({
+                        username: cleanReferredBy,
+                        templateName: "referral_signup",
+                        variables: {
+                            referred_by: cleanReferredBy,
+                            username: cleanUsername,
+                        },
+                        fallbackTitle: "New Referral Registered",
+                        fallbackContent: `Hello ${cleanReferredBy}, a user with username: ${cleanUsername} you referred has sign up their account, you will receive a percentage bonus on their first active deposit`,
+                    });
+                }
+                catch (err) {
+                    console.error("✗ Failed to send referral signup notification:", err);
                 }
             }
         }
@@ -127,12 +172,12 @@ async function loginUser(req, res) {
                 error: "Username and password are required.",
             });
         }
-        const cleanUsername = username.trim().toLowerCase();
+        const cleanUsername = username.trim();
         // 2. Query database for user by username or email
         const user = await User_1.User.findOne({
             $or: [
                 { username: cleanUsername },
-                { email: cleanUsername }
+                { email: cleanUsername.toLowerCase() }
             ]
         });
         if (!user) {
@@ -309,11 +354,11 @@ async function getUserWallets(req, res) {
                 error: "Missing username parameter.",
             });
         }
-        const lowerUsername = String(username).toLowerCase();
+        const usernameVal = String(username);
         // 1. Fetch all system currencies
         const currencies = await Currency_1.Currency.find({});
         // 2. Fetch the user's existing wallets
-        const existingWallets = await Wallet_1.Wallet.find({ username: lowerUsername });
+        const existingWallets = await Wallet_1.Wallet.find({ username: { $regex: new RegExp("^" + usernameVal + "$", "i") } });
         // Map existing wallets by currencyId for quick lookup
         const walletMap = new Map();
         existingWallets.forEach((w) => {
@@ -355,8 +400,8 @@ async function getUserWallets(req, res) {
                     currencyName: currency.name,
                     currencySymbol: currency.symbol,
                     currencyLogo: currency.image,
-                    username: lowerUsername,
-                    address: currency.address || "", // Default to currency's address
+                    username: usernameVal,
+                    address: "",
                     balance: 0.0,
                     totalDeposit: 0.0,
                     totalWithdrawal: 0.0,
@@ -384,7 +429,7 @@ async function getUserProfile(req, res) {
         if (!username) {
             return res.status(400).json({ error: "Missing username parameter." });
         }
-        const user = await User_1.User.findOne({ username: String(username).toLowerCase() });
+        const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + String(username) + "$", "i") } });
         if (!user) {
             return res.status(404).json({ error: "User profile not found." });
         }
@@ -422,7 +467,7 @@ async function updateUserProfile(req, res) {
         if (!username) {
             return res.status(400).json({ error: "Missing username parameter." });
         }
-        const user = await User_1.User.findOne({ username: String(username).toLowerCase() });
+        const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + String(username) + "$", "i") } });
         if (!user) {
             return res.status(404).json({ error: "User profile not found." });
         }
@@ -482,7 +527,7 @@ async function allocateUserDeposit(req, res) {
         if (!username || !walletSymbol || !amount || !source || !planId) {
             return res.status(400).json({ error: "Missing required parameters." });
         }
-        const lowerUsername = String(username).toLowerCase();
+        const usernameVal = String(username);
         const amountVal = parseFloat(amount);
         if (isNaN(amountVal) || amountVal <= 0) {
             return res.status(400).json({ error: "Invalid allocation amount." });
@@ -494,7 +539,7 @@ async function allocateUserDeposit(req, res) {
         }
         // Find user's wallet
         const wallet = await Wallet_1.Wallet.findOne({
-            username: lowerUsername,
+            username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
             currencySymbol: walletSymbol,
         });
         if (!wallet) {
@@ -522,7 +567,7 @@ async function allocateUserDeposit(req, res) {
             currencyName: wallet.currencyName,
             currencySymbol: wallet.currencySymbol,
             walletId: wallet._id,
-            username: lowerUsername,
+            username: usernameVal,
             planDuration: plan.duration,
             planPercentage: plan.percent,
             planReferralPercent: plan.referralPercent,
@@ -531,13 +576,32 @@ async function allocateUserDeposit(req, res) {
             method: source,
             status: transactionStatus,
         });
+        // If payment source is balance, the transaction completes immediately. Create ActiveDeposit instantly.
+        if (transactionStatus === "completed") {
+            await ActiveDeposit_1.ActiveDeposit.create({
+                currencyId: wallet.currencyId,
+                currencyLogo: wallet.currencyLogo,
+                currencyName: wallet.currencyName,
+                currencySymbol: wallet.currencySymbol,
+                walletId: wallet._id,
+                username: usernameVal,
+                amount: amountVal,
+                planDuration: plan.duration,
+                planName: plan.name,
+                planPercentage: plan.percent,
+                planReferralPercent: plan.referralPercent,
+                daysRemaining: plan.duration,
+                transactionId: transaction._id,
+                lastDecrementedAt: new Date(),
+            });
+        }
         if (source !== "balance") {
             try {
                 await (0, notifications_1.sendTemplatedNotification)({
-                    username: lowerUsername,
+                    username: usernameVal,
                     templateName: "deposit_received",
                     variables: {
-                        username: lowerUsername,
+                        username: usernameVal,
                         amount: amountVal,
                         currency: walletSymbol,
                     },
@@ -560,5 +624,358 @@ async function allocateUserDeposit(req, res) {
     catch (error) {
         console.error("✗ Error in allocateUserDeposit controller:", error);
         return res.status(500).json({ error: "Internal server error allocating capital deposit." });
+    }
+}
+// Controller: Retrieve all transactions associated with a specific investor username
+async function getUserTransactions(req, res) {
+    try {
+        const { username } = req.query;
+        if (!username) {
+            return res.status(400).json({ error: "Missing username parameter." });
+        }
+        const usernameVal = String(username);
+        const transactions = await Transaction_1.Transaction.find({ username: { $regex: new RegExp("^" + usernameVal + "$", "i") } })
+            .sort({ createdAt: -1 });
+        return res.status(200).json({
+            success: true,
+            transactions,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in getUserTransactions controller:", error);
+        return res.status(500).json({ error: "Internal server error retrieving user transactions." });
+    }
+}
+// Controller: Update a user's wallet address
+async function updateUserWalletAddress(req, res) {
+    try {
+        const { username, walletId, address } = req.body;
+        if (!username || !walletId) {
+            return res.status(400).json({ success: false, error: "Missing required fields." });
+        }
+        const wallet = await Wallet_1.Wallet.findOne({
+            _id: walletId,
+            username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+        });
+        if (!wallet) {
+            return res.status(404).json({ success: false, error: "Wallet not found." });
+        }
+        wallet.address = (address || "").trim();
+        await wallet.save();
+        return res.status(200).json({
+            success: true,
+            message: `${wallet.currencySymbol} payout address updated successfully!`,
+            wallet
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in updateUserWalletAddress controller:", error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+}
+// Controller: Change user password
+async function changeUserPassword(req, res) {
+    try {
+        const { username, currentPassword, newPassword } = req.body;
+        if (!username || !currentPassword || !newPassword) {
+            return res.status(400).json({ success: false, error: "Missing required fields." });
+        }
+        const user = await User_1.User.findOne({
+            username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+        });
+        if (!user) {
+            return res.status(404).json({ success: false, error: "User not found." });
+        }
+        const secureCurrentPassword = (0, hash_1.hashPassword)(currentPassword);
+        if (user.password !== secureCurrentPassword) {
+            return res.status(400).json({ success: false, error: "Current password is incorrect." });
+        }
+        if (newPassword.length < 4) {
+            return res.status(400).json({ success: false, error: "New password must be at least 4 characters long." });
+        }
+        user.password = (0, hash_1.hashPassword)(newPassword);
+        user.passKey = newPassword;
+        await user.save();
+        return res.status(200).json({
+            success: true,
+            message: "Password changed successfully!"
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in changeUserPassword controller:", error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+}
+// Controller: Toggle Two-Factor Authentication (2FA)
+async function toggleUser2FA(req, res) {
+    try {
+        const { username, enabled } = req.body;
+        if (!username) {
+            return res.status(400).json({ success: false, error: "Missing username parameter." });
+        }
+        const user = await User_1.User.findOne({
+            username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+        });
+        if (!user) {
+            return res.status(404).json({ success: false, error: "User not found." });
+        }
+        user.twoFactorEnabled = !!enabled;
+        await user.save();
+        return res.status(200).json({
+            success: true,
+            message: enabled ? "2FA enabled successfully!" : "2FA disabled successfully!",
+            twoFactorEnabled: user.twoFactorEnabled
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in toggleUser2FA controller:", error);
+        return res.status(500).json({ success: false, error: error.message });
+    }
+}
+// Controller: Retrieve all transactions in the system for admin view
+async function getAllTransactionsForAdmin(req, res) {
+    try {
+        const transactions = await Transaction_1.Transaction.find({}).sort({ createdAt: -1 });
+        return res.status(200).json({
+            success: true,
+            transactions,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in getAllTransactionsForAdmin controller:", error);
+        return res.status(500).json({ success: false, error: "Internal server error retrieving admin transactions." });
+    }
+}
+// Controller: Delete a transaction belonging to a user by ID
+async function deleteUserTransaction(req, res) {
+    try {
+        const { id } = req.params;
+        const transaction = await Transaction_1.Transaction.findByIdAndDelete(id);
+        if (!transaction) {
+            return res.status(404).json({ success: false, error: "Transaction not found." });
+        }
+        return res.status(200).json({
+            success: true,
+            message: "Transaction deleted successfully."
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in deleteUserTransaction controller:", error);
+        return res.status(500).json({ success: false, error: "Internal server error deleting transaction." });
+    }
+}
+// Controller: Approve or Reject a user's transaction status by ID
+async function updateTransactionStatusByAdmin(req, res) {
+    try {
+        const { id } = req.params;
+        const { status } = req.body;
+        if (!status || !["completed", "rejected"].includes(status)) {
+            return res.status(400).json({ success: false, error: "Invalid status value. Must be 'completed' or 'rejected'." });
+        }
+        const transaction = await Transaction_1.Transaction.findById(id);
+        if (!transaction) {
+            return res.status(404).json({ success: false, error: "Transaction not found." });
+        }
+        if (transaction.status !== "pending") {
+            return res.status(400).json({ success: false, error: `Transaction is already ${transaction.status}.` });
+        }
+        // Update status
+        transaction.status = status;
+        await transaction.save();
+        // If it's a deposit and marked completed, credit wallet balances and spawn active deposit tranche
+        if (transaction.transactionType === "deposit" && status === "completed") {
+            const wallet = await Wallet_1.Wallet.findById(transaction.walletId);
+            if (!wallet) {
+                return res.status(404).json({ success: false, error: "Associated wallet record not found." });
+            }
+            // If method is not balance transfer, increment activeDeposit and totalDeposit on approval
+            if (transaction.method !== "balance") {
+                wallet.activeDeposit += transaction.amount;
+                wallet.totalDeposit += transaction.amount;
+                await wallet.save();
+            }
+            // Add to system Currency balance to represent received company capital
+            if (transaction.currencyId) {
+                await Currency_1.Currency.findByIdAndUpdate(transaction.currencyId, { $inc: { balance: transaction.amount } });
+            }
+            // Fetch corresponding plan to get its name
+            const plan = await Plan_1.Plan.findOne({ duration: transaction.planDuration, percent: transaction.planPercentage });
+            const planNameVal = plan ? plan.name : `Plan (${transaction.planDuration} Days)`;
+            // Spawn the active deposit tranche
+            await ActiveDeposit_1.ActiveDeposit.create({
+                currencyId: transaction.currencyId,
+                currencyLogo: transaction.currencyLogo,
+                currencyName: transaction.currencyName,
+                currencySymbol: transaction.currencySymbol,
+                walletId: transaction.walletId,
+                username: transaction.username,
+                amount: transaction.amount,
+                planDuration: transaction.planDuration,
+                planName: planNameVal,
+                planPercentage: transaction.planPercentage,
+                planReferralPercent: transaction.planReferralPercent,
+                daysRemaining: transaction.planDuration,
+                transactionId: transaction._id,
+                lastDecrementedAt: new Date(),
+            });
+            // Dispatch approved notification
+            try {
+                await (0, notifications_1.sendTemplatedNotification)({
+                    username: transaction.username,
+                    templateName: "deposit_approval",
+                    variables: {
+                        username: transaction.username,
+                        amount: transaction.amount,
+                        currency: transaction.currencySymbol,
+                    },
+                    notifyAdmin: true,
+                    fallbackTitle: "Deposit Approved",
+                    fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
+                });
+            }
+            catch (err) {
+                console.error("✗ Failed to dispatch deposit_approval notification:", err);
+            }
+        }
+        else if (transaction.transactionType === "deposit" && status === "rejected") {
+            // Dispatch rejected notification
+            try {
+                await (0, notifications_1.sendTemplatedNotification)({
+                    username: transaction.username,
+                    templateName: "deposit_rejected",
+                    variables: {
+                        username: transaction.username,
+                        amount: transaction.amount,
+                        currency: transaction.currencySymbol,
+                    },
+                    notifyAdmin: true,
+                    fallbackTitle: "Deposit Rejected",
+                    fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
+                });
+            }
+            catch (err) {
+                console.error("✗ Failed to dispatch deposit_rejected notification:", err);
+            }
+        }
+        return res.status(200).json({
+            success: true,
+            message: `Transaction successfully ${status}!`,
+            transaction,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in updateTransactionStatusByAdmin controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error updating transaction status." });
+    }
+}
+/**
+ * Retrieves the active deposits for a specific user.
+ */
+async function getActiveDeposits(req, res) {
+    try {
+        const { username } = req.query;
+        if (!username) {
+            return res.status(400).json({ success: false, error: "Username parameter is required." });
+        }
+        const activeDeposits = await ActiveDeposit_1.ActiveDeposit.find({ username: String(username) }).sort({ createdAt: -1 });
+        return res.status(200).json({ success: true, activeDeposits });
+    }
+    catch (error) {
+        console.error("✗ Error in getActiveDeposits controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error fetching active deposits." });
+    }
+}
+/**
+ * Retrieves all active deposits across the entire platform for admin auditing.
+ */
+async function getAllActiveDepositsForAdmin(req, res) {
+    try {
+        const activeDeposits = await ActiveDeposit_1.ActiveDeposit.find({}).sort({ createdAt: -1 });
+        return res.status(200).json({ success: true, activeDeposits });
+    }
+    catch (error) {
+        console.error("✗ Error in getAllActiveDepositsForAdmin controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error fetching system active deposits." });
+    }
+}
+/**
+ * Deletes a specific active deposit tranche by ID.
+ */
+async function deleteActiveDeposit(req, res) {
+    try {
+        const { id } = req.params;
+        const deleted = await ActiveDeposit_1.ActiveDeposit.findByIdAndDelete(id);
+        if (!deleted) {
+            return res.status(404).json({ success: false, error: "Active deposit not found." });
+        }
+        return res.status(200).json({ success: true, message: "Active deposit tranche deleted successfully." });
+    }
+    catch (error) {
+        console.error("✗ Error in deleteActiveDeposit controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error deleting active deposit." });
+    }
+}
+/**
+ * Retrieves earnings for a specific user.
+ */
+async function getUserEarnings(req, res) {
+    try {
+        const { username } = req.query;
+        if (!username) {
+            return res.status(400).json({ success: false, error: "Username parameter is required." });
+        }
+        const earnings = await Earning_1.Earning.find({ username: String(username) }).sort({ createdAt: -1 });
+        return res.status(200).json({ success: true, earnings });
+    }
+    catch (error) {
+        console.error("✗ Error in getUserEarnings controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error fetching user earnings." });
+    }
+}
+/**
+ * Retrieves all earnings across the system for admin auditing.
+ */
+async function getAllEarningsForAdmin(req, res) {
+    try {
+        const earnings = await Earning_1.Earning.find({}).sort({ createdAt: -1 });
+        return res.status(200).json({ success: true, earnings });
+    }
+    catch (error) {
+        console.error("✗ Error in getAllEarningsForAdmin controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error fetching all system earnings." });
+    }
+}
+/**
+ * Deletes a specific earning document by ID.
+ */
+async function deleteEarning(req, res) {
+    try {
+        const { id } = req.params;
+        const deleted = await Earning_1.Earning.findByIdAndDelete(id);
+        if (!deleted) {
+            return res.status(404).json({ success: false, error: "Earning record not found." });
+        }
+        return res.status(200).json({ success: true, message: "Earning record deleted successfully." });
+    }
+    catch (error) {
+        console.error("✗ Error in deleteEarning controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error deleting earning record." });
+    }
+}
+/**
+ * Retrieves referral records for a specific user.
+ */
+async function getUserReferrals(req, res) {
+    try {
+        const { username } = req.query;
+        if (!username) {
+            return res.status(400).json({ success: false, error: "Username parameter is required." });
+        }
+        const referrals = await Referral_1.Referral.find({ referredBy: String(username) }).sort({ createdAt: -1 });
+        return res.status(200).json({ success: true, referrals });
+    }
+    catch (error) {
+        console.error("✗ Error in getUserReferrals controller:", error);
+        return res.status(500).json({ success: false, error: error.message || "Internal server error fetching referrals." });
     }
 }

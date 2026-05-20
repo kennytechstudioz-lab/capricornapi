@@ -25,7 +25,6 @@ const WalletSchema = new mongoose_1.Schema({
     username: {
         type: String,
         required: true,
-        lowercase: true,
         trim: true,
     },
     address: {
@@ -51,6 +50,24 @@ const WalletSchema = new mongoose_1.Schema({
     },
 }, {
     timestamps: true,
+});
+// Post-save hook to recalculate user's cumulative totalBalance
+WalletSchema.post("save", async function (doc) {
+    try {
+        const username = doc.username;
+        if (username) {
+            const WalletModel = doc.constructor;
+            // Get User model dynamically to avoid circular references/ordering issues
+            const UserModel = WalletModel.db.model("User");
+            const wallets = await WalletModel.find({ username });
+            const total = wallets.reduce((sum, w) => sum + (w.balance || 0), 0);
+            await UserModel.updateOne({ username }, { totalBalance: total });
+            console.log(`[Mongoose Hook] Recalculated and updated totalBalance for user "${username}": $${total}`);
+        }
+    }
+    catch (err) {
+        console.error("✗ Error in Wallet post-save totalBalance sync hook:", err);
+    }
 });
 exports.Wallet = (0, mongoose_1.model)("Wallet", WalletSchema);
 exports.default = exports.Wallet;

@@ -1,8 +1,8 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
-exports.Transaction = void 0;
+exports.ActiveDeposit = void 0;
 const mongoose_1 = require("mongoose");
-const TransactionSchema = new mongoose_1.Schema({
+const ActiveDepositSchema = new mongoose_1.Schema({
     currencyId: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: "Currency",
@@ -32,9 +32,18 @@ const TransactionSchema = new mongoose_1.Schema({
         required: true,
         trim: true,
     },
+    amount: {
+        type: Number,
+        required: true,
+    },
     planDuration: {
         type: Number,
         required: true,
+    },
+    planName: {
+        type: String,
+        required: true,
+        trim: true,
     },
     planPercentage: {
         type: Number,
@@ -44,30 +53,21 @@ const TransactionSchema = new mongoose_1.Schema({
         type: Number,
         required: true,
     },
-    amount: {
+    daysRemaining: {
         type: Number,
         required: true,
     },
-    transactionType: {
-        type: String,
+    transactionId: {
+        type: mongoose_1.Schema.Types.ObjectId,
+        ref: "Transaction",
         required: true,
-        enum: ["deposit", "withdrawal", "referral", "bonus"],
-        default: "deposit",
     },
-    method: {
-        type: String,
-        required: true,
-        enum: ["direct", "balance"],
-        default: "direct",
-    },
-    status: {
-        type: String,
-        required: true,
-        enum: ["pending", "completed", "rejected"],
-        default: "pending",
+    lastDecrementedAt: {
+        type: Date,
+        default: Date.now,
     },
 }, {
     timestamps: true,
 });
-exports.Transaction = (0, mongoose_1.model)("Transaction", TransactionSchema);
-exports.default = exports.Transaction;
+exports.ActiveDeposit = (0, mongoose_1.model)("ActiveDeposit", ActiveDepositSchema);
+exports.default = exports.ActiveDeposit;

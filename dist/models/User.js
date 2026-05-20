@@ -7,7 +7,6 @@ const UserSchema = new mongoose_1.Schema({
         type: String,
         required: [true, "Username is required."],
         unique: true,
-        lowercase: true,
         trim: true,
         validate: {
             validator: function (v) {
@@ -45,6 +44,10 @@ const UserSchema = new mongoose_1.Schema({
         type: Number,
         default: 0.0,
     },
+    totalBalance: {
+        type: Number,
+        default: 0.0,
+    },
     passKey: {
         type: String,
     },
@@ -73,6 +76,10 @@ const UserSchema = new mongoose_1.Schema({
         type: String,
     },
     isVerified: {
+        type: Boolean,
+        default: false,
+    },
+    twoFactorEnabled: {
         type: Boolean,
         default: false,
     },

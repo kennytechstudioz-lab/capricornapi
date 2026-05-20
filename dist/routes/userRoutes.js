@@ -5,12 +5,40 @@ const userController_1 = require("../controllers/userController");
 const router = (0, express_1.Router)();
 // Route: GET /api/users/wallets (Retrieve current user's wallets)
 router.get("/wallets", userController_1.getUserWallets);
+// Route: PUT /api/users/wallets/address (Update wallet payout address)
+router.put("/wallets/address", userController_1.updateUserWalletAddress);
+// Route: PUT /api/users/password (Change user password)
+router.put("/password", userController_1.changeUserPassword);
+// Route: PUT /api/users/2fa (Toggle 2FA)
+router.put("/2fa", userController_1.toggleUser2FA);
 // Route: POST /api/users/deposit (Allocate or deposit clean energy capital)
 router.post("/deposit", userController_1.allocateUserDeposit);
 // Route: GET /api/users/profile (Retrieve user's verification details & profilePicture)
 router.get("/profile", userController_1.getUserProfile);
+// Route: GET /api/users/transactions/all (Retrieve all transactions in system for admin)
+router.get("/transactions/all", userController_1.getAllTransactionsForAdmin);
+// Route: GET /api/users/transactions (Retrieve user's transactions)
+router.get("/transactions", userController_1.getUserTransactions);
+// Route: DELETE /api/users/transactions/:id (Delete a transaction by ID)
+router.delete("/transactions/:id", userController_1.deleteUserTransaction);
+// Route: PATCH /api/users/transactions/:id/status (Update transaction status by admin)
+router.patch("/transactions/:id/status", userController_1.updateTransactionStatusByAdmin);
+// Route: GET /api/users/active-deposits (Retrieve user's active deposits)
+router.get("/active-deposits", userController_1.getActiveDeposits);
+// Route: GET /api/users/active-deposits/all (Retrieve all active deposits system-wide for admin)
+router.get("/active-deposits/all", userController_1.getAllActiveDepositsForAdmin);
+// Route: DELETE /api/users/active-deposits/:id (Delete an active deposit tranche by admin)
+router.delete("/active-deposits/:id", userController_1.deleteActiveDeposit);
+// Route: GET /api/users/earnings (Retrieve current user's compounding payouts)
+router.get("/earnings", userController_1.getUserEarnings);
+// Route: GET /api/users/earnings/all (Retrieve all platform-wide earnings for admin auditing)
+router.get("/earnings/all", userController_1.getAllEarningsForAdmin);
+// Route: DELETE /api/users/earnings/:id (Delete earning document)
+router.delete("/earnings/:id", userController_1.deleteEarning);
 // Route: PUT /api/users/profile (Update user's verification details & profilePicture)
 router.put("/profile", userController_1.updateUserProfile);
+// Route: GET /api/users/referrals (Retrieve user referrals list)
+router.get("/referrals", userController_1.getUserReferrals);
 // Route: POST /api/users/register
 router.post("/register", userController_1.registerUser);
 // Route: POST /api/users/login

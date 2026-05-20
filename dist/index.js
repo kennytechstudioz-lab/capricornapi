@@ -19,6 +19,7 @@ const reviewRoutes_1 = __importDefault(require("./routes/reviewRoutes"));
 const adminNotificationTemplateRoutes_1 = __importDefault(require("./routes/adminNotificationTemplateRoutes"));
 const adminEmailTemplateRoutes_1 = __importDefault(require("./routes/adminEmailTemplateRoutes"));
 const notificationRoutes_1 = __importDefault(require("./routes/notificationRoutes"));
+const scheduler_1 = require("./utils/scheduler");
 // Load configuration variables
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -79,10 +80,12 @@ const server = (0, http_1.createServer)(app);
 // App Listener
 server.listen(PORT, () => {
     console.log(`========================================`);
-    console.log(` Oeelco Backend API initialized!`);
+    console.log(` Capricorn Energy Ltd Backend API initialized!`);
     console.log(` Status: ACTIVE`);
     console.log(` Port: ${PORT}`);
     console.log(` Environment: development`);
     console.log(` Health Gateway: http://localhost:${PORT}/api/health`);
     console.log(`========================================`);
+    // Start the Active Deposit scheduler after database and server are live
+    (0, scheduler_1.startActiveDepositScheduler)();
 });

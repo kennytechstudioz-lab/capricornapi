@@ -11,7 +11,7 @@ import { hashPassword } from "../utils/hash";
 import { sendTemplatedNotification } from "../utils/notifications";
 
 /**
- * Registers a new user on the Oeelco platform.
+ * Registers a new user on the Capricorn Energy Ltd platform.
  * Validates payload parameters and hashes password elements.
  */
 export async function registerUser(req: Request, res: Response) {

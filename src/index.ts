@@ -88,7 +88,7 @@ initSocket(server);
 // App Listener
 server.listen(PORT, () => {
   console.log(`========================================`);
-  console.log(` Oeelco Backend API initialized!`);
+  console.log(` Capricorn Energy Ltd Backend API initialized!`);
   console.log(` Status: ACTIVE`);
   console.log(` Port: ${PORT}`);
   console.log(` Environment: development`);
