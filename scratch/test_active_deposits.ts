@@ -6,6 +6,7 @@ import { Plan } from "../src/models/Plan";
 import { Currency } from "../src/models/Currency";
 import { Transaction } from "../src/models/Transaction";
 import { ActiveDeposit } from "../src/models/ActiveDeposit";
+import { Earning } from "../src/models/Earning";
 import { tickActiveDeposits } from "../src/utils/scheduler";
 
 dotenv.config();
@@ -14,7 +15,7 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/oeelco
 
 async function runTests() {
   console.log("======================================================");
-  console.log(" CAPRICORN INTEGRATION TEST: ACTIVE DEPOSITS & CRON   ");
+  console.log(" CAPRICORN INTEGRATION TEST: ACTIVE DEPOSITS & EARNINGS");
   console.log("======================================================");
 
   try {
@@ -30,14 +31,14 @@ async function runTests() {
       plan = await Plan.create({
         name: "ccus_fund",
         duration: 30,
-        percent: 1.5,
+        percent: 3.0, // 3% Daily Daily yield
         referralPercent: 5,
         min: 100,
         max: 50000,
         description: "Carbon Capture, Utilization, and Storage Technology Fund",
       });
     }
-    console.log(`✓ Seeded Investment Plan: ${plan.name} (Duration: ${plan.duration} days)`);
+    console.log(`✓ Seeded Investment Plan: ${plan.name} (Duration: ${plan.duration} days / Percent: ${plan.percent}%)`);
 
     let currency = await Currency.findOne({ symbol: "USDT" });
     if (!currency) {
@@ -102,6 +103,7 @@ async function runTests() {
       username: username,
       amount: amount1,
       planDuration: plan.duration,
+      planName: plan.name,
       planPercentage: plan.percent,
       planReferralPercent: plan.referralPercent,
       daysRemaining: plan.duration,
@@ -113,6 +115,7 @@ async function runTests() {
     console.log(`✓ Wallet updated: New Balance = $${wallet.balance}, ActiveDeposit = $${wallet.activeDeposit}`);
     console.log(
       `✓ Spawned ActiveDeposit: ID = ${activeDeposit1._id}, ` +
+      `planName = ${activeDeposit1.planName}, ` +
       `daysRemaining = ${activeDeposit1.daysRemaining}, ` +
       `lastTick = ${activeDeposit1.lastDecrementedAt.toISOString()}`
     );
@@ -160,6 +163,7 @@ async function runTests() {
       username: tx2.username,
       amount: tx2.amount,
       planDuration: tx2.planDuration,
+      planName: plan.name,
       planPercentage: tx2.planPercentage,
       planReferralPercent: tx2.planReferralPercent,
       daysRemaining: tx2.planDuration,
@@ -171,15 +175,21 @@ async function runTests() {
     console.log(`✓ Wallet updated on Approval: New Balance = $${wallet.balance}, ActiveDeposit = $${wallet.activeDeposit}`);
     console.log(
       `✓ Spawned ActiveDeposit: ID = ${activeDeposit2._id}, ` +
+      `planName = ${activeDeposit2.planName}, ` +
       `daysRemaining = ${activeDeposit2.daysRemaining}, ` +
       `lastTick = ${activeDeposit2.lastDecrementedAt.toISOString()}`
     );
 
     // ==========================================================
-    // TEST CASE 3: CATCH-UP SCHEDULER DECREMENT
+    // TEST CASE 3: CATCH-UP SCHEDULER TICK & DAILY EARNINGS
     // ==========================================================
-    console.log("\n--- TEST CASE 3: Hourly/Startup Catchup Scheduler Tick ---");
+    console.log("\n--- TEST CASE 3: Hourly/Startup Catchup Scheduler Tick & Daily Earnings ---");
     
+    // Check initial wallet balance before tick (should be $1500)
+    const walletBeforeTick = await Wallet.findById(wallet._id);
+    if (!walletBeforeTick) throw new Error("Wallet not found.");
+    const balanceBefore = walletBeforeTick.balance;
+
     // Artificially backdate the lastDecrementedAt timestamp of activeDeposit2 by exactly 2 days (48 hours ago)
     const backdatedTime = new Date(Date.now() - 48.5 * 60 * 60 * 1000); // 48.5 hours ago
     activeDeposit2.lastDecrementedAt = backdatedTime;
@@ -196,12 +206,32 @@ async function runTests() {
 
     const expectedDays = plan.duration - 2;
     console.log(`✓ Fetched ticked ActiveDeposit daysRemaining: ${updatedDeposit2.daysRemaining} (Expected: ${expectedDays})`);
-    console.log(`✓ Fetched ticked ActiveDeposit lastTick: ${updatedDeposit2.lastDecrementedAt.toISOString()}`);
+    
+    // Check Earning documents created for activeDeposit2
+    const earnings = await Earning.find({ activeDepositId: activeDeposit2._id });
+    console.log(`✓ Spawned Earnings records: ${earnings.length} (Expected: 2)`);
+    
+    for (const earn of earnings) {
+      console.log(
+        `  - Earning Log: User = ${earn.username}, Plan = ${earn.planName}, ` +
+        `Rate = ${earn.planPercent}%, Earning Amount = $${earn.earning}`
+      );
+    }
 
-    if (updatedDeposit2.daysRemaining === expectedDays) {
-      console.log("\n🎉 TEST SUCCESS: Days remaining successfully decremented by exactly 2 caught-up days!");
+    // Verify wallet balance has been credited appropriately
+    // Yield rate is activeDeposit2.planPercentage Daily. For 2 days caught up, total = daily * 2.
+    const walletAfterTick = await Wallet.findById(wallet._id);
+    if (!walletAfterTick) throw new Error("Wallet not found.");
+    const dailyEarningVal = activeDeposit2.amount * (activeDeposit2.planPercentage / 100);
+    const expectedBalance = balanceBefore + (dailyEarningVal * 2);
+    
+    console.log(`✓ Wallet Balance Before Tick: $${balanceBefore}`);
+    console.log(`✓ Wallet Balance After Tick: $${walletAfterTick.balance} (Expected: $${expectedBalance})`);
+
+    if (updatedDeposit2.daysRemaining === expectedDays && earnings.length === 2 && walletAfterTick.balance === expectedBalance) {
+      console.log("\n🎉 TEST SUCCESS: Earnings successfully logged, daily percentage calculated perfectly, and Wallet balance credited!");
     } else {
-      throw new Error(`Test failed. Days remaining: ${updatedDeposit2.daysRemaining}, expected: ${expectedDays}`);
+      throw new Error(`Test failed. Days remaining: ${updatedDeposit2.daysRemaining}, earnings: ${earnings.length}, balance: ${walletAfterTick.balance}`);
     }
 
     // Clean up mock user database elements
@@ -209,6 +239,7 @@ async function runTests() {
     await Wallet.deleteMany({ username: username });
     await Transaction.deleteMany({ username: username });
     await ActiveDeposit.deleteMany({ username: username });
+    await Earning.deleteMany({ username: username });
     console.log("✓ Cleaned up integration test seed database elements.");
 
   } catch (error) {

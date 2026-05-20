@@ -1,11 +1,11 @@
 import { Schema, model } from "mongoose";
 
-const ActiveDepositSchema = new Schema(
+const EarningSchema = new Schema(
   {
-    currencyId: {
-      type: Schema.Types.ObjectId,
-      ref: "Currency",
+    username: {
+      type: String,
       required: true,
+      trim: true,
     },
     currencyLogo: {
       type: String,
@@ -26,44 +26,23 @@ const ActiveDepositSchema = new Schema(
       ref: "Wallet",
       required: true,
     },
-    username: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    amount: {
-      type: Number,
-      required: true,
-    },
-    planDuration: {
-      type: Number,
-      required: true,
-    },
     planName: {
       type: String,
       required: true,
       trim: true,
     },
-    planPercentage: {
+    planPercent: {
       type: Number,
       required: true,
     },
-    planReferralPercent: {
+    earning: {
       type: Number,
       required: true,
     },
-    daysRemaining: {
-      type: Number,
-      required: true,
-    },
-    transactionId: {
+    activeDepositId: {
       type: Schema.Types.ObjectId,
-      ref: "Transaction",
+      ref: "ActiveDeposit",
       required: true,
-    },
-    lastDecrementedAt: {
-      type: Date,
-      default: Date.now,
     },
   },
   {
@@ -71,5 +50,5 @@ const ActiveDepositSchema = new Schema(
   }
 );
 
-export const ActiveDeposit = model("ActiveDeposit", ActiveDepositSchema);
-export default ActiveDeposit;
+export const Earning = model("Earning", EarningSchema);
+export default Earning;

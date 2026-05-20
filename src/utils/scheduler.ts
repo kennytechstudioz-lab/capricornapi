@@ -1,4 +1,6 @@
 import { ActiveDeposit } from "../models/ActiveDeposit";
+import { Wallet } from "../models/Wallet";
+import { Earning } from "../models/Earning";
 
 /**
  * Sweeps active deposits, calculates days elapsed since the last decrement event,
@@ -21,15 +23,50 @@ export async function tickActiveDeposits() {
 
       if (elapsedDays >= 1) {
         const oldDays = deposit.daysRemaining;
-        deposit.daysRemaining = Math.max(0, deposit.daysRemaining - elapsedDays);
+        const actualTicks = Math.min(deposit.daysRemaining, elapsedDays);
+        deposit.daysRemaining = Math.max(0, deposit.daysRemaining - actualTicks);
         
+        // Calculate daily earning based on daily percentage rate (e.g. 3% return on $100 = $3 per day)
+        const dailyEarning = deposit.amount * (deposit.planPercentage / 100);
+        const totalEarning = dailyEarning * actualTicks;
+
+        // 1. Create Earning logs for each of the completed days
+        for (let i = 0; i < actualTicks; i++) {
+          await Earning.create({
+            username: deposit.username,
+            currencyLogo: deposit.currencyLogo,
+            currencyName: deposit.currencyName,
+            currencySymbol: deposit.currencySymbol,
+            walletId: deposit.walletId,
+            planName: deposit.planName,
+            planPercent: deposit.planPercentage,
+            earning: dailyEarning,
+            activeDepositId: deposit._id,
+          });
+        }
+
+        // 2. Credit the calculated earnings to the corresponding user wallet balance
+        const wallet = await Wallet.findById(deposit.walletId);
+        if (wallet) {
+          wallet.balance += totalEarning;
+          if (deposit.daysRemaining === 0) {
+            wallet.balance += deposit.amount;
+            wallet.activeDeposit = Math.max(0, wallet.activeDeposit - deposit.amount);
+            console.log(`[Scheduler] Tranche completed! Returned principal of $${deposit.amount} back to wallet ${wallet.currencySymbol} balance.`);
+          }
+          await wallet.save();
+          console.log(`[Scheduler] Credited wallet ${wallet.currencySymbol} balance by $${totalEarning} from ${actualTicks} day(s) return.`);
+        } else {
+          console.warn(`[Scheduler] Warning: Wallet ID ${deposit.walletId} not found for active deposit ${deposit._id}. Earning credited only in logs.`);
+        }
+
         // Advance lastDecrementedAt exactly by the processed days to preserve 24-hour alignment
         deposit.lastDecrementedAt = new Date(lastTickTime + elapsedDays * 24 * 60 * 60 * 1000);
         await deposit.save();
         
         console.log(
           `✓ Ticked active deposit for "${deposit.username}" (${deposit.currencySymbol}): ` +
-          `daysRemaining ${oldDays} -> ${deposit.daysRemaining} (caught up by ${elapsedDays} day(s))`
+          `daysRemaining ${oldDays} -> ${deposit.daysRemaining} (caught up by ${elapsedDays} day(s), earning: +$${totalEarning})`
         );
         tickedCount++;
       }

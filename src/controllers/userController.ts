@@ -5,6 +5,8 @@ import { Currency } from "../models/Currency";
 import { Plan } from "../models/Plan";
 import { Transaction } from "../models/Transaction";
 import { ActiveDeposit } from "../models/ActiveDeposit";
+import { Earning } from "../models/Earning";
+import { Referral } from "../models/Referral";
 import { hashPassword } from "../utils/hash";
 import { sendTemplatedNotification } from "../utils/notifications";
 
@@ -14,7 +16,7 @@ import { sendTemplatedNotification } from "../utils/notifications";
  */
 export async function registerUser(req: Request, res: Response) {
   try {
-    const { username, email, password, wallets } = req.body;
+    const { username, email, password, wallets, referredBy } = req.body;
 
     // 1. Basic validation
     if (!username || !email || !password) {
@@ -41,7 +43,7 @@ export async function registerUser(req: Request, res: Response) {
     }
 
     // 4. Duplicate checks
-    const existingUsername = await User.findOne({ username: { $regex: new RegExp("^" + cleanUsername + "$", "i") } });
+    const existingUsername = await User.findOne({ username: cleanUsername });
     if (existingUsername) {
       return res.status(400).json({
         error: "Username is already in use by another investor.",
@@ -93,6 +95,35 @@ export async function registerUser(req: Request, res: Response) {
       }
     }
 
+    // Handle Referral association if referredBy exists
+    if (referredBy) {
+      const cleanReferredBy = referredBy.trim();
+      if (cleanReferredBy) {
+        // Create the Referral document
+        await Referral.create({
+          username: cleanUsername,
+          referredBy: cleanReferredBy,
+          commission: 0,
+        });
+
+        // Send a notification to the referrer with referral_signup template
+        try {
+          await sendTemplatedNotification({
+            username: cleanReferredBy,
+            templateName: "referral_signup",
+            variables: {
+              referred_by: cleanReferredBy,
+              username: cleanUsername,
+            },
+            fallbackTitle: "New Referral Registered",
+            fallbackContent: `Hello ${cleanReferredBy}, a user with username: ${cleanUsername} you referred has sign up their account, you will receive a percentage bonus on their first active deposit`,
+          });
+        } catch (err) {
+          console.error("✗ Failed to send referral signup notification:", err);
+        }
+      }
+    }
+
     return res.status(201).json({
       success: true,
       message: "Registration successful!",
@@ -134,7 +165,7 @@ export async function loginUser(req: Request, res: Response) {
     // 2. Query database for user by username or email
     const user = await User.findOne({
       $or: [
-        { username: { $regex: new RegExp("^" + cleanUsername + "$", "i") } },
+        { username: cleanUsername },
         { email: cleanUsername.toLowerCase() }
       ]
     });
@@ -590,6 +621,7 @@ export async function allocateUserDeposit(req: Request, res: Response) {
         username: usernameVal,
         amount: amountVal,
         planDuration: plan.duration,
+        planName: plan.name,
         planPercentage: plan.percent,
         planReferralPercent: plan.referralPercent,
         daysRemaining: plan.duration,
@@ -817,12 +849,24 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         return res.status(404).json({ success: false, error: "Associated wallet record not found." });
       }
 
-      // If method is direct transfer, increment activeDeposit and totalDeposit on approval
-      if (transaction.method === "direct") {
+      // If method is not balance transfer, increment activeDeposit and totalDeposit on approval
+      if (transaction.method !== "balance") {
         wallet.activeDeposit += transaction.amount;
         wallet.totalDeposit += transaction.amount;
         await wallet.save();
       }
+
+      // Add to system Currency balance to represent received company capital
+      if (transaction.currencyId) {
+        await Currency.findByIdAndUpdate(
+          transaction.currencyId,
+          { $inc: { balance: transaction.amount } }
+        );
+      }
+
+      // Fetch corresponding plan to get its name
+      const plan = await Plan.findOne({ duration: transaction.planDuration, percent: transaction.planPercentage });
+      const planNameVal = plan ? plan.name : `Plan (${transaction.planDuration} Days)`;
 
       // Spawn the active deposit tranche
       await ActiveDeposit.create({
@@ -834,6 +878,7 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         username: transaction.username,
         amount: transaction.amount,
         planDuration: transaction.planDuration,
+        planName: planNameVal,
         planPercentage: transaction.planPercentage,
         planReferralPercent: transaction.planReferralPercent,
         daysRemaining: transaction.planDuration,
@@ -845,18 +890,18 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
       try {
         await sendTemplatedNotification({
           username: transaction.username,
-          templateName: "deposit_approved",
+          templateName: "deposit_approval",
           variables: {
             username: transaction.username,
             amount: transaction.amount,
             currency: transaction.currencySymbol,
           },
           notifyAdmin: true,
-          fallbackTitle: "Deposit Approved & Active",
-          fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} has been approved and is now active!",
+          fallbackTitle: "Deposit Approved",
+          fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
         });
       } catch (err) {
-        console.error("✗ Failed to dispatch deposit_approved notification:", err);
+        console.error("✗ Failed to dispatch deposit_approval notification:", err);
       }
     } else if (transaction.transactionType === "deposit" && status === "rejected") {
       // Dispatch rejected notification
@@ -888,3 +933,118 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
     return res.status(500).json({ success: false, error: error.message || "Internal server error updating transaction status." });
   }
 }
+
+/**
+ * Retrieves the active deposits for a specific user.
+ */
+export async function getActiveDeposits(req: Request, res: Response) {
+  try {
+    const { username } = req.query;
+    if (!username) {
+      return res.status(400).json({ success: false, error: "Username parameter is required." });
+    }
+
+    const activeDeposits = await ActiveDeposit.find({ username: String(username) }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, activeDeposits });
+  } catch (error: any) {
+    console.error("✗ Error in getActiveDeposits controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error fetching active deposits." });
+  }
+}
+
+/**
+ * Retrieves all active deposits across the entire platform for admin auditing.
+ */
+export async function getAllActiveDepositsForAdmin(req: Request, res: Response) {
+  try {
+    const activeDeposits = await ActiveDeposit.find({}).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, activeDeposits });
+  } catch (error: any) {
+    console.error("✗ Error in getAllActiveDepositsForAdmin controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error fetching system active deposits." });
+  }
+}
+
+/**
+ * Deletes a specific active deposit tranche by ID.
+ */
+export async function deleteActiveDeposit(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const deleted = await ActiveDeposit.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: "Active deposit not found." });
+    }
+    return res.status(200).json({ success: true, message: "Active deposit tranche deleted successfully." });
+  } catch (error: any) {
+    console.error("✗ Error in deleteActiveDeposit controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error deleting active deposit." });
+  }
+}
+
+/**
+ * Retrieves earnings for a specific user.
+ */
+export async function getUserEarnings(req: Request, res: Response) {
+  try {
+    const { username } = req.query;
+    if (!username) {
+      return res.status(400).json({ success: false, error: "Username parameter is required." });
+    }
+
+    const earnings = await Earning.find({ username: String(username) }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, earnings });
+  } catch (error: any) {
+    console.error("✗ Error in getUserEarnings controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error fetching user earnings." });
+  }
+}
+
+/**
+ * Retrieves all earnings across the system for admin auditing.
+ */
+export async function getAllEarningsForAdmin(req: Request, res: Response) {
+  try {
+    const earnings = await Earning.find({}).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, earnings });
+  } catch (error: any) {
+    console.error("✗ Error in getAllEarningsForAdmin controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error fetching all system earnings." });
+  }
+}
+
+/**
+ * Deletes a specific earning document by ID.
+ */
+export async function deleteEarning(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const deleted = await Earning.findByIdAndDelete(id);
+    if (!deleted) {
+      return res.status(404).json({ success: false, error: "Earning record not found." });
+    }
+    return res.status(200).json({ success: true, message: "Earning record deleted successfully." });
+  } catch (error: any) {
+    console.error("✗ Error in deleteEarning controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error deleting earning record." });
+  }
+}
+
+/**
+ * Retrieves referral records for a specific user.
+ */
+export async function getUserReferrals(req: Request, res: Response) {
+  try {
+    const { username } = req.query;
+    if (!username) {
+      return res.status(400).json({ success: false, error: "Username parameter is required." });
+    }
+
+    const referrals = await Referral.find({ referredBy: String(username) }).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, referrals });
+  } catch (error: any) {
+    console.error("✗ Error in getUserReferrals controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error fetching referrals." });
+  }
+}
+

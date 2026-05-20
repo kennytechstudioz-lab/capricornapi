@@ -53,5 +53,28 @@ const WalletSchema = new Schema(
   }
 );
 
+// Post-save hook to recalculate user's cumulative totalBalance
+WalletSchema.post("save", async function (doc: any) {
+  try {
+    const username = doc.username;
+    if (username) {
+      const WalletModel = doc.constructor;
+      // Get User model dynamically to avoid circular references/ordering issues
+      const UserModel = WalletModel.db.model("User");
+      
+      const wallets = await WalletModel.find({ username });
+      const total = wallets.reduce((sum: number, w: any) => sum + (w.balance || 0), 0);
+      
+      await UserModel.updateOne(
+        { username },
+        { totalBalance: total }
+      );
+      console.log(`[Mongoose Hook] Recalculated and updated totalBalance for user "${username}": $${total}`);
+    }
+  } catch (err) {
+    console.error("✗ Error in Wallet post-save totalBalance sync hook:", err);
+  }
+});
+
 export const Wallet = model("Wallet", WalletSchema);
 export default Wallet;

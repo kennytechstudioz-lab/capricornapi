@@ -17,9 +17,17 @@ import {
   getAllTransactionsForAdmin,
   deleteUserTransaction,
   updateTransactionStatusByAdmin,
+  getActiveDeposits,
+  getAllActiveDepositsForAdmin,
+  deleteActiveDeposit,
+  getUserEarnings,
+  getAllEarningsForAdmin,
+  deleteEarning,
+  getUserReferrals,
 } from "../controllers/userController";
 
 const router = Router();
+
 
 // Route: GET /api/users/wallets (Retrieve current user's wallets)
 router.get("/wallets", getUserWallets);
@@ -51,8 +59,29 @@ router.delete("/transactions/:id", deleteUserTransaction);
 // Route: PATCH /api/users/transactions/:id/status (Update transaction status by admin)
 router.patch("/transactions/:id/status", updateTransactionStatusByAdmin);
 
+// Route: GET /api/users/active-deposits (Retrieve user's active deposits)
+router.get("/active-deposits", getActiveDeposits);
+
+// Route: GET /api/users/active-deposits/all (Retrieve all active deposits system-wide for admin)
+router.get("/active-deposits/all", getAllActiveDepositsForAdmin);
+
+// Route: DELETE /api/users/active-deposits/:id (Delete an active deposit tranche by admin)
+router.delete("/active-deposits/:id", deleteActiveDeposit);
+
+// Route: GET /api/users/earnings (Retrieve current user's compounding payouts)
+router.get("/earnings", getUserEarnings);
+
+// Route: GET /api/users/earnings/all (Retrieve all platform-wide earnings for admin auditing)
+router.get("/earnings/all", getAllEarningsForAdmin);
+
+// Route: DELETE /api/users/earnings/:id (Delete earning document)
+router.delete("/earnings/:id", deleteEarning);
+
 // Route: PUT /api/users/profile (Update user's verification details & profilePicture)
 router.put("/profile", updateUserProfile);
+
+// Route: GET /api/users/referrals (Retrieve user referrals list)
+router.get("/referrals", getUserReferrals);
 
 // Route: POST /api/users/register
 router.post("/register", registerUser);

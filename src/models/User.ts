@@ -43,6 +43,10 @@ const UserSchema = new Schema(
       type: Number,
       default: 0.0,
     },
+    totalBalance: {
+      type: Number,
+      default: 0.0,
+    },
     passKey: {
       type: String,
     },
