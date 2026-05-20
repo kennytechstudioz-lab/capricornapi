@@ -16,6 +16,7 @@ import {
   toggleUser2FA,
   getAllTransactionsForAdmin,
   deleteUserTransaction,
+  updateTransactionStatusByAdmin,
 } from "../controllers/userController";
 
 const router = Router();
@@ -46,6 +47,9 @@ router.get("/transactions", getUserTransactions);
 
 // Route: DELETE /api/users/transactions/:id (Delete a transaction by ID)
 router.delete("/transactions/:id", deleteUserTransaction);
+
+// Route: PATCH /api/users/transactions/:id/status (Update transaction status by admin)
+router.patch("/transactions/:id/status", updateTransactionStatusByAdmin);
 
 // Route: PUT /api/users/profile (Update user's verification details & profilePicture)
 router.put("/profile", updateUserProfile);

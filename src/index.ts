@@ -14,6 +14,8 @@ import reviewRoutes from "./routes/reviewRoutes";
 import adminNotificationTemplateRoutes from "./routes/adminNotificationTemplateRoutes";
 import adminEmailTemplateRoutes from "./routes/adminEmailTemplateRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
+import { startActiveDepositScheduler } from "./utils/scheduler";
+
 
 // Load configuration variables
 dotenv.config();
@@ -92,4 +94,7 @@ server.listen(PORT, () => {
   console.log(` Environment: development`);
   console.log(` Health Gateway: http://localhost:${PORT}/api/health`);
   console.log(`========================================`);
+  
+  // Start the Active Deposit scheduler after database and server are live
+  startActiveDepositScheduler();
 });

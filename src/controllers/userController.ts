@@ -4,6 +4,7 @@ import { Wallet } from "../models/Wallet";
 import { Currency } from "../models/Currency";
 import { Plan } from "../models/Plan";
 import { Transaction } from "../models/Transaction";
+import { ActiveDeposit } from "../models/ActiveDeposit";
 import { hashPassword } from "../utils/hash";
 import { sendTemplatedNotification } from "../utils/notifications";
 
@@ -578,6 +579,25 @@ export async function allocateUserDeposit(req: Request, res: Response) {
       status: transactionStatus,
     });
 
+    // If payment source is balance, the transaction completes immediately. Create ActiveDeposit instantly.
+    if (transactionStatus === "completed") {
+      await ActiveDeposit.create({
+        currencyId: wallet.currencyId,
+        currencyLogo: wallet.currencyLogo,
+        currencyName: wallet.currencyName,
+        currencySymbol: wallet.currencySymbol,
+        walletId: wallet._id,
+        username: usernameVal,
+        amount: amountVal,
+        planDuration: plan.duration,
+        planPercentage: plan.percent,
+        planReferralPercent: plan.referralPercent,
+        daysRemaining: plan.duration,
+        transactionId: transaction._id,
+        lastDecrementedAt: new Date(),
+      });
+    }
+
     if (source !== "balance") {
       try {
         await sendTemplatedNotification({
@@ -764,5 +784,107 @@ export async function deleteUserTransaction(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in deleteUserTransaction controller:", error);
     return res.status(500).json({ success: false, error: "Internal server error deleting transaction." });
+  }
+}
+
+// Controller: Approve or Reject a user's transaction status by ID
+export async function updateTransactionStatusByAdmin(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const { status } = req.body;
+
+    if (!status || !["completed", "rejected"].includes(status)) {
+      return res.status(400).json({ success: false, error: "Invalid status value. Must be 'completed' or 'rejected'." });
+    }
+
+    const transaction = await Transaction.findById(id);
+    if (!transaction) {
+      return res.status(404).json({ success: false, error: "Transaction not found." });
+    }
+
+    if (transaction.status !== "pending") {
+      return res.status(400).json({ success: false, error: `Transaction is already ${transaction.status}.` });
+    }
+
+    // Update status
+    transaction.status = status;
+    await transaction.save();
+
+    // If it's a deposit and marked completed, credit wallet balances and spawn active deposit tranche
+    if (transaction.transactionType === "deposit" && status === "completed") {
+      const wallet = await Wallet.findById(transaction.walletId);
+      if (!wallet) {
+        return res.status(404).json({ success: false, error: "Associated wallet record not found." });
+      }
+
+      // If method is direct transfer, increment activeDeposit and totalDeposit on approval
+      if (transaction.method === "direct") {
+        wallet.activeDeposit += transaction.amount;
+        wallet.totalDeposit += transaction.amount;
+        await wallet.save();
+      }
+
+      // Spawn the active deposit tranche
+      await ActiveDeposit.create({
+        currencyId: transaction.currencyId,
+        currencyLogo: transaction.currencyLogo,
+        currencyName: transaction.currencyName,
+        currencySymbol: transaction.currencySymbol,
+        walletId: transaction.walletId,
+        username: transaction.username,
+        amount: transaction.amount,
+        planDuration: transaction.planDuration,
+        planPercentage: transaction.planPercentage,
+        planReferralPercent: transaction.planReferralPercent,
+        daysRemaining: transaction.planDuration,
+        transactionId: transaction._id,
+        lastDecrementedAt: new Date(),
+      });
+
+      // Dispatch approved notification
+      try {
+        await sendTemplatedNotification({
+          username: transaction.username,
+          templateName: "deposit_approved",
+          variables: {
+            username: transaction.username,
+            amount: transaction.amount,
+            currency: transaction.currencySymbol,
+          },
+          notifyAdmin: true,
+          fallbackTitle: "Deposit Approved & Active",
+          fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} has been approved and is now active!",
+        });
+      } catch (err) {
+        console.error("✗ Failed to dispatch deposit_approved notification:", err);
+      }
+    } else if (transaction.transactionType === "deposit" && status === "rejected") {
+      // Dispatch rejected notification
+      try {
+        await sendTemplatedNotification({
+          username: transaction.username,
+          templateName: "deposit_rejected",
+          variables: {
+            username: transaction.username,
+            amount: transaction.amount,
+            currency: transaction.currencySymbol,
+          },
+          notifyAdmin: true,
+          fallbackTitle: "Deposit Rejected",
+          fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
+        });
+      } catch (err) {
+        console.error("✗ Failed to dispatch deposit_rejected notification:", err);
+      }
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: `Transaction successfully ${status}!`,
+      transaction,
+    });
+  } catch (error: any) {
+    console.error("✗ Error in updateTransactionStatusByAdmin controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error updating transaction status." });
   }
 }
