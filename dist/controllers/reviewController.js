@@ -1,9 +1,11 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.adminCreateReview = adminCreateReview;
 exports.createReview = createReview;
 exports.getApprovedReviews = getApprovedReviews;
 exports.getAllReviews = getAllReviews;
 exports.updateReviewApproval = updateReviewApproval;
+exports.updateReview = updateReview;
 exports.deleteReview = deleteReview;
 const Review_1 = require("../models/Review");
 const User_1 = require("../models/User");
@@ -33,6 +35,37 @@ function getFlagEmoji(countryName) {
     if (name.includes("india") || name === "in")
         return "🇮🇳";
     return "🌐";
+}
+// Controller: Admin direct review creation (custom reviewer data, no user lookup)
+async function adminCreateReview(req, res) {
+    try {
+        const { fullName, content, rating, country, countryFlag, userPicture } = req.body;
+        if (!fullName) {
+            return res.status(400).json({ error: "Reviewer full name is required." });
+        }
+        if (!content) {
+            return res.status(400).json({ error: "Review content is required." });
+        }
+        const review = new Review_1.Review({
+            fullName: String(fullName).trim(),
+            content: String(content).trim(),
+            rating: Math.min(5, Math.max(1, Number(rating) || 5)),
+            country: country || "",
+            countryFlag: countryFlag || "",
+            userPicture: userPicture || "",
+            isApproved: true,
+        });
+        await review.save();
+        return res.status(201).json({
+            success: true,
+            message: "Review created and published successfully.",
+            review,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in adminCreateReview controller:", error);
+        return res.status(500).json({ error: "Internal server error creating review." });
+    }
 }
 // Controller: Create a review
 async function createReview(req, res) {
@@ -122,6 +155,39 @@ async function updateReviewApproval(req, res) {
     catch (error) {
         console.error("✗ Error in updateReviewApproval controller:", error);
         return res.status(500).json({ error: "Internal server error updating review approval status." });
+    }
+}
+// Controller: Update review fields (Admin edit)
+async function updateReview(req, res) {
+    try {
+        const { id } = req.params;
+        const { fullName, content, rating, country, countryFlag, userPicture } = req.body;
+        const review = await Review_1.Review.findById(id);
+        if (!review) {
+            return res.status(404).json({ error: "Review not found." });
+        }
+        if (fullName !== undefined)
+            review.fullName = String(fullName).trim();
+        if (content !== undefined)
+            review.content = String(content).trim();
+        if (rating !== undefined)
+            review.rating = Math.min(5, Math.max(1, Number(rating)));
+        if (country !== undefined)
+            review.country = country;
+        if (countryFlag !== undefined)
+            review.countryFlag = countryFlag;
+        if (userPicture !== undefined)
+            review.userPicture = userPicture;
+        await review.save();
+        return res.status(200).json({
+            success: true,
+            message: "Review updated successfully.",
+            review,
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in updateReview controller:", error);
+        return res.status(500).json({ error: "Internal server error updating review." });
     }
 }
 // Controller: Delete review

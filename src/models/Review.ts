@@ -5,7 +5,7 @@ const ReviewSchema = new Schema(
     userId: {
       type: Schema.Types.ObjectId,
       ref: "User",
-      required: [true, "User ID is required."],
+      required: false,
     },
     fullName: {
       type: String,

@@ -9,4 +9,6 @@ router.post("/", planController_1.createPlan);
 router.get("/", planController_1.getPlans);
 // Route: PATCH /api/plans/:id (Update an existing investment plan)
 router.patch("/:id", planController_1.updatePlan);
+// Route: DELETE /api/plans/:id (Delete an existing investment plan)
+router.delete("/:id", planController_1.deletePlan);
 exports.default = router;

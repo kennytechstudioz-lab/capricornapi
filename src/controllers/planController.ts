@@ -139,3 +139,26 @@ export async function updatePlan(req: Request, res: Response) {
     });
   }
 }
+
+// Controller: Delete an existing investment plan
+export async function deletePlan(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const plan = await Plan.findByIdAndDelete(id);
+    if (!plan) {
+      return res.status(404).json({
+        error: "Investment plan not found.",
+      });
+    }
+
+    return res.status(200).json({
+      success: true,
+      message: "Investment plan deleted successfully!",
+    });
+  } catch (error: any) {
+    console.error("✗ Error in deletePlan controller:", error);
+    return res.status(500).json({
+      error: "Internal server error during plan deletion.",
+    });
+  }
+}

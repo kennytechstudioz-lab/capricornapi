@@ -19,6 +19,41 @@ function getFlagEmoji(countryName: string): string {
   return "🌐";
 }
 
+// Controller: Admin direct review creation (custom reviewer data, no user lookup)
+export async function adminCreateReview(req: Request, res: Response) {
+  try {
+    const { fullName, content, rating, country, countryFlag, userPicture } = req.body;
+
+    if (!fullName) {
+      return res.status(400).json({ error: "Reviewer full name is required." });
+    }
+    if (!content) {
+      return res.status(400).json({ error: "Review content is required." });
+    }
+
+    const review = new Review({
+      fullName: String(fullName).trim(),
+      content: String(content).trim(),
+      rating: Math.min(5, Math.max(1, Number(rating) || 5)),
+      country: country || "",
+      countryFlag: countryFlag || "",
+      userPicture: userPicture || "",
+      isApproved: true,
+    });
+
+    await review.save();
+
+    return res.status(201).json({
+      success: true,
+      message: "Review created and published successfully.",
+      review,
+    });
+  } catch (error: any) {
+    console.error("✗ Error in adminCreateReview controller:", error);
+    return res.status(500).json({ error: "Internal server error creating review." });
+  }
+}
+
 // Controller: Create a review
 export async function createReview(req: Request, res: Response) {
   try {
@@ -115,6 +150,37 @@ export async function updateReviewApproval(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in updateReviewApproval controller:", error);
     return res.status(500).json({ error: "Internal server error updating review approval status." });
+  }
+}
+
+// Controller: Update review fields (Admin edit)
+export async function updateReview(req: Request, res: Response) {
+  try {
+    const { id } = req.params;
+    const { fullName, content, rating, country, countryFlag, userPicture } = req.body;
+
+    const review = await Review.findById(id);
+    if (!review) {
+      return res.status(404).json({ error: "Review not found." });
+    }
+
+    if (fullName !== undefined) review.fullName = String(fullName).trim();
+    if (content !== undefined) review.content = String(content).trim();
+    if (rating !== undefined) review.rating = Math.min(5, Math.max(1, Number(rating)));
+    if (country !== undefined) review.country = country;
+    if (countryFlag !== undefined) review.countryFlag = countryFlag;
+    if (userPicture !== undefined) review.userPicture = userPicture;
+
+    await review.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Review updated successfully.",
+      review,
+    });
+  } catch (error: any) {
+    console.error("✗ Error in updateReview controller:", error);
+    return res.status(500).json({ error: "Internal server error updating review." });
   }
 }
 
