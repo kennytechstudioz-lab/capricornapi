@@ -88,13 +88,14 @@ async function deleteNotificationTemplate(req, res) {
 // ==========================================
 async function createEmailTemplate(req, res) {
     try {
-        const { name, title, content, banner } = req.body;
+        const { name, title, greeting, content, banner } = req.body;
         if (!name || !title || !content) {
             return res.status(400).json({ error: "Missing required fields (name, title, content)." });
         }
         const template = await EmailTemplate_1.EmailTemplate.create({
             name: name.trim(),
             title: title.trim(),
+            greeting: (greeting || "Hi {{username}},").trim(),
             content: content.trim(),
             banner: (banner || "").trim(),
         });
@@ -121,7 +122,7 @@ async function getEmailTemplates(req, res) {
 async function updateEmailTemplate(req, res) {
     try {
         const { id } = req.params;
-        const { name, title, content, banner } = req.body;
+        const { name, title, greeting, content, banner } = req.body;
         const template = await EmailTemplate_1.EmailTemplate.findById(id);
         if (!template) {
             return res.status(404).json({ error: "Email template not found." });
@@ -130,6 +131,8 @@ async function updateEmailTemplate(req, res) {
             template.name = name.trim();
         if (title !== undefined)
             template.title = title.trim();
+        if (greeting !== undefined)
+            template.greeting = greeting.trim();
         if (content !== undefined)
             template.content = content.trim();
         if (banner !== undefined)

@@ -24,6 +24,9 @@ import {
   getAllEarningsForAdmin,
   deleteEarning,
   getUserReferrals,
+  getAllReferralsForAdmin,
+  adminBulkNotify,
+  adminCreateTransaction,
 } from "../controllers/userController";
 
 const router = Router();
@@ -80,8 +83,17 @@ router.delete("/earnings/:id", deleteEarning);
 // Route: PUT /api/users/profile (Update user's verification details & profilePicture)
 router.put("/profile", updateUserProfile);
 
+// Route: GET /api/users/referrals/all (Retrieve all referrals system-wide for admin)
+router.get("/referrals/all", getAllReferralsForAdmin);
+
 // Route: GET /api/users/referrals (Retrieve user referrals list)
 router.get("/referrals", getUserReferrals);
+
+// Route: POST /api/users/bulk-notify (Admin sends in-app notification to selected users)
+router.post("/bulk-notify", adminBulkNotify);
+
+// Route: POST /api/users/transactions/admin (Admin creates a transaction for a user)
+router.post("/transactions/admin", adminCreateTransaction);
 
 // Route: POST /api/users/register
 router.post("/register", registerUser);

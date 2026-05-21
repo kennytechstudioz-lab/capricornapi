@@ -14,6 +14,9 @@ import reviewRoutes from "./routes/reviewRoutes";
 import adminNotificationTemplateRoutes from "./routes/adminNotificationTemplateRoutes";
 import adminEmailTemplateRoutes from "./routes/adminEmailTemplateRoutes";
 import notificationRoutes from "./routes/notificationRoutes";
+import staffRoutes from "./routes/staffRoutes";
+import faqRoutes from "./routes/faqRoutes";
+import blogRoutes from "./routes/blogRoutes";
 import { startActiveDepositScheduler } from "./utils/scheduler";
 
 
@@ -44,6 +47,9 @@ app.use("/api/reviews", reviewRoutes);
 app.use("/api/admin/notification-templates", adminNotificationTemplateRoutes);
 app.use("/api/admin/email-templates", adminEmailTemplateRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/staff", staffRoutes);
+app.use("/api/faqs", faqRoutes);
+app.use("/api/blogs", blogRoutes);
 
 // Database connection initialization
 connectDatabase();

@@ -14,6 +14,11 @@ const EmailTemplateSchema = new mongoose_1.Schema({
         required: [true, "Template title is required."],
         trim: true,
     },
+    greeting: {
+        type: String,
+        default: "Hi {{username}},",
+        trim: true,
+    },
     content: {
         type: String,
         required: [true, "Template content is required."],

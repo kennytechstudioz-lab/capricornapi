@@ -29,7 +29,7 @@ export async function getSettings(req: Request, res: Response) {
  */
 export async function updateSettings(req: Request, res: Response) {
   try {
-    const { companyName, domainName, email, phone, address, description, showCurrencyOnRegister } = req.body;
+    const { companyName, domainName, email, phone, address, description, showCurrency } = req.body;
 
     let setting = await Setting.findOne({});
     if (!setting) {
@@ -43,7 +43,7 @@ export async function updateSettings(req: Request, res: Response) {
     setting.phone = phone !== undefined ? phone.trim() : setting.phone;
     setting.address = address !== undefined ? address.trim() : setting.address;
     setting.description = description !== undefined ? description.trim() : setting.description;
-    setting.showCurrencyOnRegister = showCurrencyOnRegister !== undefined ? Boolean(showCurrencyOnRegister) : setting.showCurrencyOnRegister;
+    setting.showCurrency = showCurrency !== undefined ? Boolean(showCurrency) : setting.showCurrency;
 
     await setting.save();
 

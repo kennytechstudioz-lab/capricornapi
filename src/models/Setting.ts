@@ -32,7 +32,7 @@ const SettingSchema = new Schema(
       default: "Capricorn Energy is a global leader in clean-energy investments, delivering sustainable and secured high-yield dividends.",
       trim: true,
     },
-    showCurrencyOnRegister: {
+    showCurrency: {
       type: Boolean,
       default: false,
     },

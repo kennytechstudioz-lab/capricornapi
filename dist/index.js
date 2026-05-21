@@ -19,6 +19,9 @@ const reviewRoutes_1 = __importDefault(require("./routes/reviewRoutes"));
 const adminNotificationTemplateRoutes_1 = __importDefault(require("./routes/adminNotificationTemplateRoutes"));
 const adminEmailTemplateRoutes_1 = __importDefault(require("./routes/adminEmailTemplateRoutes"));
 const notificationRoutes_1 = __importDefault(require("./routes/notificationRoutes"));
+const staffRoutes_1 = __importDefault(require("./routes/staffRoutes"));
+const faqRoutes_1 = __importDefault(require("./routes/faqRoutes"));
+const blogRoutes_1 = __importDefault(require("./routes/blogRoutes"));
 const scheduler_1 = require("./utils/scheduler");
 // Load configuration variables
 dotenv_1.default.config();
@@ -43,6 +46,9 @@ app.use("/api/reviews", reviewRoutes_1.default);
 app.use("/api/admin/notification-templates", adminNotificationTemplateRoutes_1.default);
 app.use("/api/admin/email-templates", adminEmailTemplateRoutes_1.default);
 app.use("/api/notifications", notificationRoutes_1.default);
+app.use("/api/staff", staffRoutes_1.default);
+app.use("/api/faqs", faqRoutes_1.default);
+app.use("/api/blogs", blogRoutes_1.default);
 // Database connection initialization
 (0, db_1.connectDatabase)();
 // API Health Check Endpoint

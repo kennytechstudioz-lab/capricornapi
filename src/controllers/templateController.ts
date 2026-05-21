@@ -85,7 +85,7 @@ export async function deleteNotificationTemplate(req: Request, res: Response) {
 
 export async function createEmailTemplate(req: Request, res: Response) {
   try {
-    const { name, title, content, banner } = req.body;
+    const { name, title, greeting, content, banner } = req.body;
     if (!name || !title || !content) {
       return res.status(400).json({ error: "Missing required fields (name, title, content)." });
     }
@@ -93,6 +93,7 @@ export async function createEmailTemplate(req: Request, res: Response) {
     const template = await EmailTemplate.create({
       name: name.trim(),
       title: title.trim(),
+      greeting: (greeting || "Hi {{username}},").trim(),
       content: content.trim(),
       banner: (banner || "").trim(),
     });
@@ -120,7 +121,7 @@ export async function getEmailTemplates(req: Request, res: Response) {
 export async function updateEmailTemplate(req: Request, res: Response) {
   try {
     const { id } = req.params;
-    const { name, title, content, banner } = req.body;
+    const { name, title, greeting, content, banner } = req.body;
 
     const template = await EmailTemplate.findById(id);
     if (!template) {
@@ -129,6 +130,7 @@ export async function updateEmailTemplate(req: Request, res: Response) {
 
     if (name !== undefined) template.name = name.trim();
     if (title !== undefined) template.title = title.trim();
+    if (greeting !== undefined) template.greeting = greeting.trim();
     if (content !== undefined) template.content = content.trim();
     if (banner !== undefined) template.banner = (banner || "").trim();
 

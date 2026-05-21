@@ -34,7 +34,7 @@ async function getSettings(req, res) {
  */
 async function updateSettings(req, res) {
     try {
-        const { companyName, domainName, email, phone, address, description, showCurrencyOnRegister } = req.body;
+        const { companyName, domainName, email, phone, address, description, showCurrency } = req.body;
         let setting = await Setting_1.default.findOne({});
         if (!setting) {
             setting = new Setting_1.default();
@@ -46,7 +46,7 @@ async function updateSettings(req, res) {
         setting.phone = phone !== undefined ? phone.trim() : setting.phone;
         setting.address = address !== undefined ? address.trim() : setting.address;
         setting.description = description !== undefined ? description.trim() : setting.description;
-        setting.showCurrencyOnRegister = showCurrencyOnRegister !== undefined ? Boolean(showCurrencyOnRegister) : setting.showCurrencyOnRegister;
+        setting.showCurrency = showCurrency !== undefined ? Boolean(showCurrency) : setting.showCurrency;
         await setting.save();
         console.log("✓ System settings updated successfully by admin administrator.");
         return res.status(200).json({

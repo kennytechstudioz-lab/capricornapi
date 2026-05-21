@@ -37,8 +37,14 @@ router.get("/earnings/all", userController_1.getAllEarningsForAdmin);
 router.delete("/earnings/:id", userController_1.deleteEarning);
 // Route: PUT /api/users/profile (Update user's verification details & profilePicture)
 router.put("/profile", userController_1.updateUserProfile);
+// Route: GET /api/users/referrals/all (Retrieve all referrals system-wide for admin)
+router.get("/referrals/all", userController_1.getAllReferralsForAdmin);
 // Route: GET /api/users/referrals (Retrieve user referrals list)
 router.get("/referrals", userController_1.getUserReferrals);
+// Route: POST /api/users/bulk-notify (Admin sends in-app notification to selected users)
+router.post("/bulk-notify", userController_1.adminBulkNotify);
+// Route: POST /api/users/transactions/admin (Admin creates a transaction for a user)
+router.post("/transactions/admin", userController_1.adminCreateTransaction);
 // Route: POST /api/users/register
 router.post("/register", userController_1.registerUser);
 // Route: POST /api/users/login

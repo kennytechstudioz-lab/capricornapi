@@ -7,8 +7,10 @@ import { Transaction } from "../models/Transaction";
 import { ActiveDeposit } from "../models/ActiveDeposit";
 import { Earning } from "../models/Earning";
 import { Referral } from "../models/Referral";
+import { Notification } from "../models/Notification";
 import { hashPassword } from "../utils/hash";
 import { sendTemplatedNotification } from "../utils/notifications";
+import { sendTemplatedEmail } from "../utils/email";
 
 /**
  * Registers a new user on the Capricorn Energy Ltd platform.
@@ -106,23 +108,43 @@ export async function registerUser(req: Request, res: Response) {
           commission: 0,
         });
 
-        // Send a notification to the referrer with referral_signup template
+        // Send notification + email to the referrer
         try {
           await sendTemplatedNotification({
             username: cleanReferredBy,
             templateName: "referral_signup",
             variables: {
-              referred_by: cleanReferredBy,
-              username: cleanUsername,
+              referral_username: cleanUsername,
+              username: cleanReferredBy,
             },
             fallbackTitle: "New Referral Registered",
-            fallbackContent: `Hello ${cleanReferredBy}, a user with username: ${cleanUsername} you referred has sign up their account, you will receive a percentage bonus on their first active deposit`,
+            fallbackContent: `A user with username: ${cleanUsername} you referred has sign up their account, you will receive a percentage bonus on their first active deposit`,
           });
         } catch (err) {
           console.error("✗ Failed to send referral signup notification:", err);
         }
+
+        // Fire-and-forget email to referrer
+        sendTemplatedEmail({
+          username: cleanReferredBy,
+          templateName: "referral_signup",
+          variables: { referral_username: cleanUsername },
+          fallbackSubject: "New Referral Registered",
+          fallbackGreeting: `Hi ${cleanReferredBy},`,
+          fallbackContent: `A user with username: <strong>${cleanUsername}</strong> you referred has signed up their account. You will receive a percentage bonus on their first active deposit.`,
+        });
       }
     }
+
+    // Send welcome email to the newly registered user
+    sendTemplatedEmail({
+      username: cleanUsername,
+      templateName: "registration_successful",
+      variables: { username: cleanUsername },
+      fallbackSubject: "Welcome to Capricorn Energy",
+      fallbackGreeting: `Hi ${cleanUsername},`,
+      fallbackContent: `Your account has been successfully created on Capricorn Energy. You can now log in and start exploring our clean energy investment plans.`,
+    });
 
     return res.status(201).json({
       success: true,
@@ -642,11 +664,21 @@ export async function allocateUserDeposit(req: Request, res: Response) {
           },
           notifyAdmin: true,
           fallbackTitle: "Deposit Received & Processing",
-          fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} is processing and you will be notified upon approval",
+          fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processing and you will be notified upon approval",
         });
       } catch (notificationErr) {
         console.error("✗ Error dispatching deposit_received notification:", notificationErr);
       }
+
+      // Send email receipt to depositing user
+      sendTemplatedEmail({
+        username: usernameVal,
+        templateName: "deposit_received",
+        variables: { amount: amountVal, currency: walletSymbol },
+        fallbackSubject: "Deposit Received & Processing",
+        fallbackGreeting: `Hi ${usernameVal},`,
+        fallbackContent: `Your deposit of <strong>$${amountVal}</strong> worth of <strong>${walletSymbol}</strong> is processing and you will be notified upon approval.`,
+      });
     }
 
     return res.status(200).json({
@@ -886,7 +918,7 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         lastDecrementedAt: new Date(),
       });
 
-      // Dispatch approved notification
+      // Dispatch approved notification + email
       try {
         await sendTemplatedNotification({
           username: transaction.username,
@@ -898,11 +930,21 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
           },
           notifyAdmin: true,
           fallbackTitle: "Deposit Approved",
-          fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
+          fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
         });
       } catch (err) {
         console.error("✗ Failed to dispatch deposit_approval notification:", err);
       }
+
+      // Send approval email to user
+      sendTemplatedEmail({
+        username: transaction.username,
+        templateName: "deposit_approval",
+        variables: { amount: transaction.amount, currency: transaction.currencySymbol },
+        fallbackSubject: "Deposit Approved",
+        fallbackGreeting: `Hi ${transaction.username},`,
+        fallbackContent: `Your deposit of <strong>$${transaction.amount}</strong> worth of <strong>${transaction.currencySymbol}</strong> is processed and approved.`,
+      });
     } else if (transaction.transactionType === "deposit" && status === "rejected") {
       // Dispatch rejected notification
       try {
@@ -1031,6 +1073,72 @@ export async function deleteEarning(req: Request, res: Response) {
 }
 
 /**
+ * Admin: creates an in-app notification for a batch of users by username.
+ */
+export async function adminBulkNotify(req: Request, res: Response) {
+  try {
+    const { usernames, title, message } = req.body;
+    if (!Array.isArray(usernames) || !usernames.length || !title || !message) {
+      return res.status(400).json({ error: "usernames (array), title, and message are required." });
+    }
+    const docs = usernames.map((u: string) => ({
+      username: String(u).toLowerCase().trim(),
+      notificationName: "admin-broadcast",
+      notificationTitle: String(title).trim(),
+      content: String(message).trim(),
+      isRead: false,
+      isAdminRead: false,
+    }));
+    await Notification.insertMany(docs);
+    return res.status(201).json({ success: true, message: `Notification sent to ${usernames.length} user(s).` });
+  } catch (error: any) {
+    console.error("✗ Error in adminBulkNotify:", error);
+    return res.status(500).json({ error: "Internal server error sending bulk notifications." });
+  }
+}
+
+/**
+ * Admin: creates a transaction record for a user directly.
+ */
+export async function adminCreateTransaction(req: Request, res: Response) {
+  try {
+    const { username, transactionType, amount, currencySymbol, status, method } = req.body;
+    if (!username || !amount || !currencySymbol || !transactionType) {
+      return res.status(400).json({ error: "username, amount, currencySymbol, and transactionType are required." });
+    }
+    const user = await User.findOne({ username: String(username).toLowerCase() });
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const wallet = await Wallet.findOne({
+      userId: user._id,
+      currencySymbol: String(currencySymbol).toUpperCase().trim(),
+    });
+    if (!wallet) return res.status(404).json({ error: `No ${currencySymbol} wallet found for this user.` });
+
+    const transaction = new Transaction({
+      currencyId: wallet.currencyId,
+      currencyLogo: (wallet as any).currencyLogo || "",
+      currencyName: wallet.currencyName,
+      currencySymbol: wallet.currencySymbol,
+      walletId: wallet._id,
+      username: user.username,
+      planDuration: 0,
+      planPercentage: 0,
+      planReferralPercent: 0,
+      amount: Number(amount),
+      transactionType: transactionType || "deposit",
+      method: method || "direct",
+      status: status || "pending",
+    });
+    await transaction.save();
+    return res.status(201).json({ success: true, message: "Transaction created successfully.", transaction });
+  } catch (error: any) {
+    console.error("✗ Error in adminCreateTransaction:", error);
+    return res.status(500).json({ error: "Internal server error creating transaction." });
+  }
+}
+
+/**
  * Retrieves referral records for a specific user.
  */
 export async function getUserReferrals(req: Request, res: Response) {
@@ -1044,6 +1152,19 @@ export async function getUserReferrals(req: Request, res: Response) {
     return res.status(200).json({ success: true, referrals });
   } catch (error: any) {
     console.error("✗ Error in getUserReferrals controller:", error);
+    return res.status(500).json({ success: false, error: error.message || "Internal server error fetching referrals." });
+  }
+}
+
+/**
+ * Admin: retrieves all referral records system-wide.
+ */
+export async function getAllReferralsForAdmin(req: Request, res: Response) {
+  try {
+    const referrals = await Referral.find({}).sort({ createdAt: -1 });
+    return res.status(200).json({ success: true, referrals });
+  } catch (error: any) {
+    console.error("✗ Error in getAllReferralsForAdmin controller:", error);
     return res.status(500).json({ success: false, error: error.message || "Internal server error fetching referrals." });
   }
 }
