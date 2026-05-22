@@ -1,48 +1,19 @@
-import nodemailer from "nodemailer";
-import { resolve4 } from "dns/promises";
+import { Resend } from "resend";
 import { EmailTemplate } from "../models/EmailTemplate";
 import { User } from "../models/User";
 import { buildEmailHtml } from "./emailLayout";
 import { compileTemplate } from "./notifications";
 
-// Lazily created and cached — resolved at first send so env vars and IPv4 DNS are ready
-let _transporter: nodemailer.Transporter | null = null;
+let _resend: Resend | null = null;
 
-async function getTransporter(): Promise<nodemailer.Transporter> {
-  if (_transporter) return _transporter;
-
-  const rawHost = process.env.EMAIL_HOST || "smtp.hostinger.com";
-  const port = parseInt(process.env.EMAIL_PORT || "465");
-  const secure = port === 465;
-
-  // resolve4() queries A records directly — cannot return IPv6, Railway-safe
-  let host = rawHost;
-  try {
-    const addresses = await resolve4(rawHost);
-    host = addresses[0];
-    console.log(`[Email] Resolved ${rawHost} → ${host} (IPv4)`);
-  } catch (err) {
-    console.warn(`[Email] resolve4 failed for ${rawHost}, falling back to hostname:`, err);
-  }
-
-  _transporter = nodemailer.createTransport({
-    host,
-    port,
-    secure,
-    auth: {
-      user: process.env.EMAIL_USER || process.env.EMAIL_FROM_ADDRESS,
-      pass: process.env.EMAIL_PASS,
-    },
-  });
-
-  return _transporter;
+function getResend(): Resend {
+  if (_resend) return _resend;
+  const apiKey = process.env.RESEND_API_KEY;
+  if (!apiKey) throw new Error("RESEND_API_KEY is not set");
+  _resend = new Resend(apiKey);
+  return _resend;
 }
 
-/**
- * Looks up a user's email by username, fetches the named email template,
- * compiles {{variables}}, builds the branded HTML layout, and sends the email.
- * Failures are caught and logged so they never break the calling request.
- */
 export async function sendTemplatedEmail(params: {
   username: string;
   templateName: string;
@@ -53,8 +24,8 @@ export async function sendTemplatedEmail(params: {
 }) {
   const { username, templateName, variables, fallbackSubject, fallbackGreeting, fallbackContent } = params;
 
-  if (!process.env.EMAIL_PASS || !process.env.EMAIL_FROM_ADDRESS) {
-    console.error(`[Email] SMTP credentials not configured — skipping "${templateName}" for "${username}"`);
+  if (!process.env.RESEND_API_KEY) {
+    console.error(`[Email] RESEND_API_KEY not configured — skipping "${templateName}" for "${username}"`);
     return;
   }
 
@@ -81,14 +52,21 @@ export async function sendTemplatedEmail(params: {
     }
 
     const html = buildEmailHtml({ title: subject, greeting, content, bannerUrl });
-    const transporter = await getTransporter();
+    const fromName = process.env.EMAIL_FROM_NAME || "Capricorn Energy";
+    const fromAddress = process.env.EMAIL_FROM_ADDRESS || "noreply@capricornenergyltd.online";
 
-    await transporter.sendMail({
-      from: `"${process.env.EMAIL_FROM_NAME || "Capricorn Energy"}" <${process.env.EMAIL_FROM_ADDRESS}>`,
+    const resend = getResend();
+    const { error } = await resend.emails.send({
+      from: `${fromName} <${fromAddress}>`,
       to: user.email,
       subject,
       html,
     });
+
+    if (error) {
+      console.error(`[Email] Resend rejected "${templateName}" for "${username}":`, error);
+      return;
+    }
 
     console.log(`[Email] "${templateName}" sent to ${user.email}`);
   } catch (err) {
