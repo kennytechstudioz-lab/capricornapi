@@ -24,6 +24,7 @@ exports.getUserEarnings = getUserEarnings;
 exports.getAllEarningsForAdmin = getAllEarningsForAdmin;
 exports.deleteEarning = deleteEarning;
 exports.adminBulkNotify = adminBulkNotify;
+exports.requestUserWithdrawal = requestUserWithdrawal;
 exports.adminCreateTransaction = adminCreateTransaction;
 exports.getUserReferrals = getUserReferrals;
 exports.getAllReferralsForAdmin = getAllReferralsForAdmin;
@@ -1031,22 +1032,33 @@ async function adminBulkNotify(req, res) {
 /**
  * Admin: creates a transaction record for a user directly.
  */
-async function adminCreateTransaction(req, res) {
+async function requestUserWithdrawal(req, res) {
     try {
-        const { username, transactionType, amount, currencySymbol, status, method } = req.body;
-        if (!username || !amount || !currencySymbol || !transactionType) {
-            return res.status(400).json({ error: "username, amount, currencySymbol, and transactionType are required." });
+        const { username, amount, currencySymbol } = req.body;
+        if (!username || !amount || !currencySymbol) {
+            return res.status(400).json({ error: "username, amount, and currencySymbol are required." });
         }
-        const user = await User_1.User.findOne({ username: String(username).toLowerCase() });
+        const amountNum = parseFloat(amount);
+        if (isNaN(amountNum) || amountNum <= 0) {
+            return res.status(400).json({ error: "Invalid withdrawal amount." });
+        }
+        const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
         if (!user)
             return res.status(404).json({ error: "User not found." });
         const wallet = await Wallet_1.Wallet.findOne({
-            userId: user._id,
-            currencySymbol: String(currencySymbol).toUpperCase().trim(),
+            username: user.username,
+            currencySymbol: { $regex: new RegExp("^" + String(currencySymbol).trim() + "$", "i") },
         });
         if (!wallet)
-            return res.status(404).json({ error: `No ${currencySymbol} wallet found for this user.` });
-        const transaction = new Transaction_1.Transaction({
+            return res.status(404).json({ error: `No ${currencySymbol} wallet found.` });
+        if ((wallet.balance || 0) < amountNum) {
+            return res.status(400).json({ error: "Insufficient wallet balance." });
+        }
+        // Deduct balance immediately; post-save hook syncs user.balance
+        wallet.balance = (wallet.balance || 0) - amountNum;
+        wallet.totalWithdrawal = (wallet.totalWithdrawal || 0) + amountNum;
+        await wallet.save();
+        const transaction = await Transaction_1.Transaction.create({
             currencyId: wallet.currencyId,
             currencyLogo: wallet.currencyLogo || "",
             currencyName: wallet.currencyName,
@@ -1056,12 +1068,171 @@ async function adminCreateTransaction(req, res) {
             planDuration: 0,
             planPercentage: 0,
             planReferralPercent: 0,
-            amount: Number(amount),
-            transactionType: transactionType || "deposit",
-            method: method || "direct",
-            status: status || "pending",
+            amount: amountNum,
+            transactionType: "withdrawal",
+            method: "direct",
+            status: "pending",
+        });
+        (0, notifications_1.sendTemplatedNotification)({
+            username: user.username,
+            templateName: "withdrawal_processing",
+            variables: {
+                username: user.username,
+                amount: amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                currency: wallet.currencyName,
+            },
+            notifyAdmin: true,
+            fallbackTitle: "Withdrawal Processing",
+            fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is being processed and you will be notified upon approval.",
+        }).catch((err) => console.error("[Withdrawal] Notification failed:", err));
+        return res.status(201).json({ success: true, message: "Withdrawal request submitted.", transaction });
+    }
+    catch (error) {
+        console.error("✗ Error in requestUserWithdrawal:", error);
+        return res.status(500).json({ error: "Internal server error processing withdrawal." });
+    }
+}
+async function adminCreateTransaction(req, res) {
+    try {
+        const { username, transactionType, amount, currencySymbol, method, planId } = req.body;
+        if (!username || !amount || !currencySymbol || !transactionType) {
+            return res.status(400).json({ error: "username, amount, currencySymbol, and transactionType are required." });
+        }
+        const cleanUsername = String(username).trim();
+        const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + cleanUsername + "$", "i") } });
+        if (!user)
+            return res.status(404).json({ error: "User not found." });
+        const symbolClean = String(currencySymbol).trim();
+        const wallet = await Wallet_1.Wallet.findOne({
+            username: user.username,
+            currencySymbol: { $regex: new RegExp("^" + symbolClean + "$", "i") },
+        });
+        if (!wallet)
+            return res.status(404).json({ error: `No ${symbolClean} wallet found for this user.` });
+        const txnType = String(transactionType).toLowerCase();
+        const txnMethod = String(method || "direct").toLowerCase();
+        const amountNum = Number(amount);
+        const isBonus = txnType === "bonus";
+        const isDeposit = txnType === "deposit";
+        const isWithdrawal = txnType === "withdrawal";
+        const isFromBalance = txnMethod === "balance";
+        // Balance-funded deposit: verify sufficient funds up front
+        if (isDeposit && isFromBalance) {
+            if ((wallet.balance || 0) < amountNum) {
+                return res.status(400).json({ error: "Insufficient wallet balance to fund this deposit." });
+            }
+        }
+        // Withdrawal: verify sufficient funds up front
+        if (isWithdrawal) {
+            if ((wallet.balance || 0) < amountNum) {
+                return res.status(400).json({ error: "Insufficient wallet balance for this withdrawal." });
+            }
+        }
+        // Resolve plan details before creating the transaction
+        let planDuration = 0, planName = "Admin Deposit", planPercentage = 0, planReferralPercent = 0;
+        if (isDeposit && planId) {
+            const plan = await Plan_1.Plan.findById(planId);
+            if (plan) {
+                planDuration = plan.duration;
+                planName = plan.name;
+                planPercentage = plan.percent;
+                planReferralPercent = plan.referralPercent;
+            }
+        }
+        const transaction = new Transaction_1.Transaction({
+            currencyId: wallet.currencyId,
+            currencyLogo: wallet.currencyLogo || "",
+            currencyName: wallet.currencyName,
+            currencySymbol: wallet.currencySymbol,
+            walletId: wallet._id,
+            username: user.username,
+            planDuration,
+            planPercentage,
+            planReferralPercent,
+            amount: amountNum,
+            transactionType: txnType,
+            method: txnMethod,
+            status: "completed",
         });
         await transaction.save();
+        if (isBonus) {
+            wallet.balance = (wallet.balance || 0) + amountNum;
+            await wallet.save();
+            (0, notifications_1.sendTemplatedNotification)({
+                username: user.username,
+                templateName: "bonus",
+                variables: {
+                    username: user.username,
+                    amount: amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                    currency: wallet.currencyName,
+                },
+                fallbackTitle: "Bonus Received",
+                fallbackContent: `Hi {{username}}, you have received a bonus of ${{ amount }} worth of ${wallet.currencyName}`,
+                notifyAdmin: false,
+            }).catch((err) => console.error("[Bonus] Notification failed:", err));
+        }
+        if (isWithdrawal) {
+            wallet.balance = (wallet.balance || 0) - amountNum;
+            wallet.totalWithdrawal = (wallet.totalWithdrawal || 0) + amountNum;
+            await wallet.save();
+            (0, notifications_1.sendTemplatedNotification)({
+                username: user.username,
+                templateName: "withdrawal_approved",
+                variables: {
+                    username: user.username,
+                    amount: amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+                    currency: wallet.currencyName,
+                },
+                notifyAdmin: false,
+                fallbackTitle: "Withdrawal Approved",
+                fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is processed and approved.",
+            }).catch((err) => console.error("[Withdrawal] Notification failed:", err));
+        }
+        if (isDeposit) {
+            if (isFromBalance) {
+                // Deduct from wallet balance; post-save hook syncs user.balance
+                wallet.balance = (wallet.balance || 0) - amountNum;
+            }
+            wallet.activeDeposit = (wallet.activeDeposit || 0) + amountNum;
+            wallet.totalDeposit = (wallet.totalDeposit || 0) + amountNum;
+            await wallet.save();
+            await ActiveDeposit_1.ActiveDeposit.create({
+                currencyId: wallet.currencyId,
+                currencyLogo: wallet.currencyLogo || "",
+                currencyName: wallet.currencyName,
+                currencySymbol: wallet.currencySymbol,
+                walletId: wallet._id,
+                username: user.username,
+                amount: amountNum,
+                planDuration,
+                planName,
+                planPercentage,
+                planReferralPercent,
+                daysRemaining: planDuration,
+                transactionId: transaction._id,
+                lastDecrementedAt: new Date(),
+            });
+            (0, notifications_1.sendTemplatedNotification)({
+                username: user.username,
+                templateName: "deposit_approval",
+                variables: {
+                    username: user.username,
+                    amount: amountNum,
+                    currency: wallet.currencySymbol,
+                },
+                notifyAdmin: false,
+                fallbackTitle: "Deposit Approved",
+                fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
+            }).catch((err) => console.error("[Deposit] Notification failed:", err));
+            (0, email_1.sendTemplatedEmail)({
+                username: user.username,
+                templateName: "deposit_approval",
+                variables: { amount: amountNum, currency: wallet.currencySymbol },
+                fallbackSubject: "Deposit Approved",
+                fallbackGreeting: `Hi ${user.username},`,
+                fallbackContent: `Your deposit of <strong>$${amountNum}</strong> worth of <strong>${wallet.currencySymbol}</strong> is processed and approved.`,
+            });
+        }
         return res.status(201).json({ success: true, message: "Transaction created successfully.", transaction });
     }
     catch (error) {

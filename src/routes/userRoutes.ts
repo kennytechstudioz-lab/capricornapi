@@ -27,6 +27,7 @@ import {
   getAllReferralsForAdmin,
   adminBulkNotify,
   adminCreateTransaction,
+  requestUserWithdrawal,
 } from "../controllers/userController";
 
 const router = Router();
@@ -46,6 +47,9 @@ router.put("/2fa", toggleUser2FA);
 
 // Route: POST /api/users/deposit (Allocate or deposit clean energy capital)
 router.post("/deposit", allocateUserDeposit);
+
+// Route: POST /api/users/withdrawal (User requests a withdrawal)
+router.post("/withdrawal", requestUserWithdrawal);
 
 // Route: GET /api/users/profile (Retrieve user's verification details & profilePicture)
 router.get("/profile", getUserProfile);
