@@ -1,22 +1,42 @@
 import nodemailer from "nodemailer";
+import { resolve4 } from "dns/promises";
 import { EmailTemplate } from "../models/EmailTemplate";
 import { User } from "../models/User";
 import { buildEmailHtml } from "./emailLayout";
 import { compileTemplate } from "./notifications";
 
-import SMTPTransport from "nodemailer/lib/smtp-transport";
+// Lazily created and cached — resolved at first send so env vars and IPv4 DNS are ready
+let _transporter: nodemailer.Transporter | null = null;
 
-const transportOptions: SMTPTransport.Options = {
-  host: process.env.EMAIL_HOST || "smtp.hostinger.com",
-  port: parseInt(process.env.EMAIL_PORT || "465"),
-  secure: parseInt(process.env.EMAIL_PORT || "465") === 465,
-  auth: {
-    user: process.env.EMAIL_FROM_ADDRESS,
-    pass: process.env.EMAIL_PASS,
-  },
-};
+async function getTransporter(): Promise<nodemailer.Transporter> {
+  if (_transporter) return _transporter;
 
-const transporter = nodemailer.createTransport(transportOptions);
+  const rawHost = process.env.EMAIL_HOST || "smtp.hostinger.com";
+  const port = parseInt(process.env.EMAIL_PORT || "465");
+  const secure = port === 465;
+
+  // resolve4() queries A records directly — cannot return IPv6, Railway-safe
+  let host = rawHost;
+  try {
+    const addresses = await resolve4(rawHost);
+    host = addresses[0];
+    console.log(`[Email] Resolved ${rawHost} → ${host} (IPv4)`);
+  } catch (err) {
+    console.warn(`[Email] resolve4 failed for ${rawHost}, falling back to hostname:`, err);
+  }
+
+  _transporter = nodemailer.createTransport({
+    host,
+    port,
+    secure,
+    auth: {
+      user: process.env.EMAIL_USER || process.env.EMAIL_FROM_ADDRESS,
+      pass: process.env.EMAIL_PASS,
+    },
+  });
+
+  return _transporter;
+}
 
 /**
  * Looks up a user's email by username, fetches the named email template,
@@ -33,13 +53,12 @@ export async function sendTemplatedEmail(params: {
 }) {
   const { username, templateName, variables, fallbackSubject, fallbackGreeting, fallbackContent } = params;
 
-  if (!process.env.EMAIL_FROM_ADDRESS || !process.env.EMAIL_PASS) {
-    console.error(`[Email] SMTP credentials not configured (EMAIL_FROM_ADDRESS / EMAIL_PASS missing) — skipping "${templateName}" for "${username}"`);
+  if (!process.env.EMAIL_PASS || !process.env.EMAIL_FROM_ADDRESS) {
+    console.error(`[Email] SMTP credentials not configured — skipping "${templateName}" for "${username}"`);
     return;
   }
 
   try {
-    // Resolve recipient email from username
     const user = await User.findOne({ username: { $regex: new RegExp("^" + username.trim() + "$", "i") } });
     if (!user?.email) {
       console.warn(`[Email] No email found for username "${username}" — skipping ${templateName}`);
@@ -53,7 +72,6 @@ export async function sendTemplatedEmail(params: {
     let content = compileTemplate(fallbackContent, allVars);
     let bannerUrl: string | undefined;
 
-    // Override with DB template if it exists
     const template = await EmailTemplate.findOne({ name: templateName });
     if (template) {
       subject = compileTemplate(template.title, allVars);
@@ -63,6 +81,7 @@ export async function sendTemplatedEmail(params: {
     }
 
     const html = buildEmailHtml({ title: subject, greeting, content, bannerUrl });
+    const transporter = await getTransporter();
 
     await transporter.sendMail({
       from: `"${process.env.EMAIL_FROM_NAME || "Capricorn Energy"}" <${process.env.EMAIL_FROM_ADDRESS}>`,
