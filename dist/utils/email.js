@@ -9,7 +9,7 @@ const EmailTemplate_1 = require("../models/EmailTemplate");
 const User_1 = require("../models/User");
 const emailLayout_1 = require("./emailLayout");
 const notifications_1 = require("./notifications");
-const transporter = nodemailer_1.default.createTransport({
+const transportOptions = {
     host: process.env.EMAIL_HOST || "smtp.hostinger.com",
     port: parseInt(process.env.EMAIL_PORT || "465"),
     secure: parseInt(process.env.EMAIL_PORT || "465") === 465,
@@ -17,7 +17,10 @@ const transporter = nodemailer_1.default.createTransport({
         user: process.env.EMAIL_FROM_ADDRESS,
         pass: process.env.EMAIL_PASS,
     },
-});
+};
+// Force IPv4 — Railway does not support IPv6 outbound; not in @types/nodemailer
+transportOptions.family = 4;
+const transporter = nodemailer_1.default.createTransport(transportOptions);
 /**
  * Looks up a user's email by username, fetches the named email template,
  * compiles {{variables}}, builds the branded HTML layout, and sends the email.
@@ -25,6 +28,10 @@ const transporter = nodemailer_1.default.createTransport({
  */
 async function sendTemplatedEmail(params) {
     const { username, templateName, variables, fallbackSubject, fallbackGreeting, fallbackContent } = params;
+    if (!process.env.EMAIL_FROM_ADDRESS || !process.env.EMAIL_PASS) {
+        console.error(`[Email] SMTP credentials not configured (EMAIL_FROM_ADDRESS / EMAIL_PASS missing) — skipping "${templateName}" for "${username}"`);
+        return;
+    }
     try {
         // Resolve recipient email from username
         const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + username.trim() + "$", "i") } });

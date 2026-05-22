@@ -37,6 +37,7 @@ const ActiveDeposit_1 = require("../models/ActiveDeposit");
 const Earning_1 = require("../models/Earning");
 const Referral_1 = require("../models/Referral");
 const Notification_1 = require("../models/Notification");
+const Review_1 = require("../models/Review");
 const hash_1 = require("../utils/hash");
 const notifications_1 = require("../utils/notifications");
 const email_1 = require("../utils/email");
@@ -161,7 +162,7 @@ async function registerUser(req, res) {
             fallbackSubject: "Welcome to Capricorn Energy",
             fallbackGreeting: `Hi ${cleanUsername},`,
             fallbackContent: `Your account has been successfully created on Capricorn Energy. You can now log in and start exploring our clean energy investment plans.`,
-        });
+        }).catch((err) => console.error("[Email] Registration welcome email failed:", err));
         return res.status(201).json({
             success: true,
             message: "Registration successful!",
@@ -320,6 +321,16 @@ async function deleteUser(req, res) {
                 error: "Target user account not found.",
             });
         }
+        const username = user.username;
+        await Promise.all([
+            Transaction_1.Transaction.deleteMany({ username }),
+            ActiveDeposit_1.ActiveDeposit.deleteMany({ username }),
+            Earning_1.Earning.deleteMany({ username }),
+            Referral_1.Referral.deleteMany({ username }),
+            Wallet_1.Wallet.deleteMany({ username }),
+            Notification_1.Notification.deleteMany({ username }),
+            Review_1.Review.deleteMany({ userId: user._id }),
+        ]);
         return res.status(200).json({
             success: true,
             message: "User account deleted successfully!",

@@ -4,7 +4,9 @@ import { User } from "../models/User";
 import { buildEmailHtml } from "./emailLayout";
 import { compileTemplate } from "./notifications";
 
-const transporter = nodemailer.createTransport({
+import SMTPTransport from "nodemailer/lib/smtp-transport";
+
+const transportOptions: SMTPTransport.Options = {
   host: process.env.EMAIL_HOST || "smtp.hostinger.com",
   port: parseInt(process.env.EMAIL_PORT || "465"),
   secure: parseInt(process.env.EMAIL_PORT || "465") === 465,
@@ -12,7 +14,11 @@ const transporter = nodemailer.createTransport({
     user: process.env.EMAIL_FROM_ADDRESS,
     pass: process.env.EMAIL_PASS,
   },
-});
+};
+// Force IPv4 — Railway does not support IPv6 outbound; not in @types/nodemailer
+(transportOptions as any).family = 4;
+
+const transporter = nodemailer.createTransport(transportOptions);
 
 /**
  * Looks up a user's email by username, fetches the named email template,
