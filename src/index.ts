@@ -17,6 +17,7 @@ import notificationRoutes from "./routes/notificationRoutes";
 import staffRoutes from "./routes/staffRoutes";
 import faqRoutes from "./routes/faqRoutes";
 import blogRoutes from "./routes/blogRoutes";
+import termRoutes from "./routes/termRoutes";
 import { startActiveDepositScheduler } from "./utils/scheduler";
 
 
@@ -50,6 +51,7 @@ app.use("/api/notifications", notificationRoutes);
 app.use("/api/staff", staffRoutes);
 app.use("/api/faqs", faqRoutes);
 app.use("/api/blogs", blogRoutes);
+app.use("/api/terms", termRoutes);
 
 // Database connection initialization
 connectDatabase();
