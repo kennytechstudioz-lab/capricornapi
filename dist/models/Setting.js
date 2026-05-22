@@ -37,6 +37,24 @@ const SettingSchema = new mongoose_1.Schema({
         type: Boolean,
         default: false,
     },
+    registrationLink: {
+        type: String,
+        default: "",
+        trim: true,
+    },
+    mapEmbed: {
+        type: String,
+        default: "",
+    },
+    documents: {
+        type: [
+            {
+                name: { type: String, default: "" },
+                url: { type: String, default: "" },
+            },
+        ],
+        default: [],
+    },
 }, {
     timestamps: true,
 });

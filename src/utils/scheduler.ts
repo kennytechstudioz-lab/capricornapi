@@ -1,6 +1,8 @@
 import { ActiveDeposit } from "../models/ActiveDeposit";
 import { Wallet } from "../models/Wallet";
 import { Earning } from "../models/Earning";
+import { sendTemplatedNotification } from "./notifications";
+import { sendTemplatedEmail } from "./email";
 
 /**
  * Sweeps active deposits, calculates days elapsed since the last decrement event,
@@ -53,6 +55,44 @@ export async function tickActiveDeposits() {
             wallet.balance += deposit.amount;
             wallet.activeDeposit = Math.max(0, wallet.activeDeposit - deposit.amount);
             console.log(`[Scheduler] Tranche completed! Returned principal of $${deposit.amount} back to wallet ${wallet.currencySymbol} balance.`);
+
+            // Total earnings over the full plan duration
+            const totalEarned = (deposit.amount * (deposit.planPercentage / 100) * deposit.planDuration).toFixed(2);
+            const dashboardUrl = `${process.env.NEXT_PUBLIC_URL || "https://capricornenergyltd.online"}/dashboard`;
+
+            const vars = {
+              username: deposit.username,
+              planName: deposit.planName,
+              planPercentage: deposit.planPercentage,
+              planDuration: deposit.planDuration,
+              amount: deposit.amount,
+              currencySymbol: deposit.currencySymbol,
+              currencyName: deposit.currencyName,
+              totalEarned,
+              dashboardUrl,
+            };
+
+            // Notify user + admin in real time
+            sendTemplatedNotification({
+              username: deposit.username,
+              templateName: "investment_complete",
+              variables: vars,
+              fallbackTitle: `Investment Completed — ${deposit.planName}`,
+              fallbackContent: `Your ${deposit.planName} investment of ${deposit.amount} ${deposit.currencySymbol} has completed. Your principal has been returned to your wallet. Total earnings: +${totalEarned} ${deposit.currencySymbol}.`,
+              notifyAdmin: true,
+              adminTitle: `Investment Completed — ${deposit.username} / ${deposit.planName}`,
+              adminContent: `${deposit.username}'s ${deposit.planName} investment of ${deposit.amount} ${deposit.currencySymbol} has completed its ${deposit.planDuration}-day cycle. Principal returned. Total earnings generated: +${totalEarned} ${deposit.currencySymbol}.`,
+            }).catch((err) => console.error(`[Scheduler] Failed to send completion notification for ${deposit.username}:`, err));
+
+            // Send completion email to user
+            sendTemplatedEmail({
+              username: deposit.username,
+              templateName: "investment_complete",
+              variables: vars,
+              fallbackSubject: `Investment Plan Completed — ${deposit.planName}`,
+              fallbackGreeting: `Hi ${deposit.username},`,
+              fallbackContent: `Your ${deposit.planName} investment of ${deposit.amount} ${deposit.currencySymbol} has completed. Your principal has been returned to your wallet balance.`,
+            }).catch((err) => console.error(`[Scheduler] Failed to send completion email for ${deposit.username}:`, err));
           }
           await wallet.save();
           console.log(`[Scheduler] Credited wallet ${wallet.currencySymbol} balance by $${totalEarning} from ${actualTicks} day(s) return.`);

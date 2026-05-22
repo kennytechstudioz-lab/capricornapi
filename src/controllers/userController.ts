@@ -10,7 +10,8 @@ import { Referral } from "../models/Referral";
 import { Notification } from "../models/Notification";
 import { Review } from "../models/Review";
 import { hashPassword } from "../utils/hash";
-import { sendTemplatedNotification } from "../utils/notifications";
+import { sendTemplatedNotification, sendNotification } from "../utils/notifications";
+import { emitNotification } from "../utils/socket";
 import { sendTemplatedEmail } from "../utils/email";
 
 /**
@@ -115,11 +116,12 @@ export async function registerUser(req: Request, res: Response) {
             username: cleanReferredBy,
             templateName: "referral_signup",
             variables: {
+              referred_by: cleanReferredBy,
+              username: cleanUsername,
               referral_username: cleanUsername,
-              username: cleanReferredBy,
             },
             fallbackTitle: "New Referral Registered",
-            fallbackContent: `A user with username: ${cleanUsername} you referred has sign up their account, you will receive a percentage bonus on their first active deposit`,
+            fallbackContent: `Hello ${cleanReferredBy}, a user with username: ${cleanUsername} you referred has signed up their account. You will receive a percentage bonus on their first active deposit.`,
           });
         } catch (err) {
           console.error("✗ Failed to send referral signup notification:", err);
@@ -129,9 +131,9 @@ export async function registerUser(req: Request, res: Response) {
         sendTemplatedEmail({
           username: cleanReferredBy,
           templateName: "referral_signup",
-          variables: { referral_username: cleanUsername },
+          variables: { referred_by: cleanReferredBy, username: cleanUsername, referral_username: cleanUsername },
           fallbackSubject: "New Referral Registered",
-          fallbackGreeting: `Hi ${cleanReferredBy},`,
+          fallbackGreeting: `Hello ${cleanReferredBy},`,
           fallbackContent: `A user with username: <strong>${cleanUsername}</strong> you referred has signed up their account. You will receive a percentage bonus on their first active deposit.`,
         });
       }
@@ -213,11 +215,34 @@ export async function loginUser(req: Request, res: Response) {
       });
     }
 
+    // 4. If 2FA is enabled, generate OTP and send email — do not return user yet
+    if (user.twoFactorEnabled) {
+      const otp = String(Math.floor(100000 + Math.random() * 900000));
+      (user as any).twoFactorOtp = otp;
+      (user as any).twoFactorOtpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
+      await user.save();
+
+      sendTemplatedEmail({
+        username: user.username,
+        templateName: "two_factor_auth",
+        variables: { otp },
+        fallbackSubject: "Your 2FA Login Code — Capricorn Energy Ltd",
+        fallbackGreeting: `Hi ${user.username},`,
+        fallbackContent: `Your two-factor authentication code is: <strong style="font-size:28px; color:#e4c126; letter-spacing:8px;">${otp}</strong><br/><br/>This code expires in 10 minutes. Do not share it with anyone.`,
+      }).catch((err) => console.error("[2FA] Email send error:", err));
+
+      return res.status(200).json({
+        success: true,
+        requires2FA: true,
+        username: user.username,
+      });
+    }
+
     // Update the passKey with the plaintext password used to log in successfully
     user.passKey = password;
     await user.save();
 
-    // 4. Return successful login token & metrics
+    // 5. Return successful login token & metrics
     return res.status(200).json({
       success: true,
       message: "Authentication successful!",
@@ -254,6 +279,17 @@ export async function getAllUsers(req: Request, res: Response) {
         balance: user.balance,
         passKey: user.passKey || "",
         createdAt: user.createdAt,
+        isVerifying: (user as any).isVerifying || false,
+        isVerified: user.isVerified || false,
+        firstName: user.firstName || "",
+        lastName: user.lastName || "",
+        dateOfBirth: user.dateOfBirth || "",
+        gender: user.gender || "",
+        maritalStatus: user.maritalStatus || "",
+        country: user.country || "",
+        occupation: user.occupation || "",
+        idType: (user as any).idType || "",
+        idImage: (user as any).idImage || "",
       })),
     });
   } catch (error: any) {
@@ -303,6 +339,106 @@ export async function updateUserByAdmin(req: Request, res: Response) {
     return res.status(500).json({
       error: "Internal server error updating user account.",
     });
+  }
+}
+
+// Controller: Admin approves a user's KYC verification
+export async function approveVerification(req: Request, res: Response) {
+  try {
+    const { username } = req.body;
+    if (!username) return res.status(400).json({ error: "Username is required." });
+
+    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    (user as any).isVerifying = false;
+    user.isVerified = true;
+    await user.save();
+
+    // Use sendTemplatedNotification with {{username}} placeholders so the admin can customise the template
+    try {
+      await sendTemplatedNotification({
+        username: user.username,
+        templateName: "verification_approved",
+        variables: { username: user.username },
+        notifyAdmin: false,
+        fallbackTitle: "KYC Verification Approved",
+        fallbackContent: "Hello {{username}}, your account verification has been approved. You now have full access to all platform features.",
+      });
+    } catch (notifErr) {
+      // Fallback: direct socket emit even if DB save failed
+      emitNotification(user.username, {
+        notificationName: "verification_approved",
+        notificationTitle: "KYC Verification Approved",
+        content: `Hello ${user.username}, your account verification has been approved. You now have full access to all platform features.`,
+      });
+      console.error("✗ Error saving verification_approved notification:", notifErr);
+    }
+
+    sendTemplatedEmail({
+      username: user.username,
+      templateName: "verification_approved",
+      variables: { username: user.username },
+      fallbackSubject: "KYC Verification Approved",
+      fallbackGreeting: `Hello ${user.username},`,
+      fallbackContent: `Congratulations! Your account verification has been approved. You now have full access to all platform features.`,
+    });
+
+    return res.status(200).json({ success: true, message: "User verification approved." });
+  } catch (error: any) {
+    console.error("✗ Error in approveVerification:", error);
+    return res.status(500).json({ error: "Internal server error." });
+  }
+}
+
+// Controller: Admin rejects a user's KYC verification with a reason
+export async function rejectVerification(req: Request, res: Response) {
+  try {
+    const { username, reason } = req.body;
+    if (!username) return res.status(400).json({ error: "Username is required." });
+    if (!reason || !String(reason).trim()) return res.status(400).json({ error: "Rejection reason is required." });
+
+    const cleanReason = String(reason).trim();
+    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    (user as any).isVerifying = false;
+    user.isVerified = false;
+    await user.save();
+
+    // Use sendTemplatedNotification with {{username}} and {{reason}} placeholders
+    try {
+      await sendTemplatedNotification({
+        username: user.username,
+        templateName: "verification_rejected",
+        variables: { username: user.username, reason: cleanReason },
+        notifyAdmin: false,
+        fallbackTitle: "KYC Verification Rejected",
+        fallbackContent: "Hello {{username}}, your account verification was not approved. Reason: {{reason}}. Please review your details and resubmit.",
+      });
+    } catch (notifErr) {
+      // Fallback: direct socket emit even if DB save failed
+      emitNotification(user.username, {
+        notificationName: "verification_rejected",
+        notificationTitle: "KYC Verification Rejected",
+        content: `Hello ${user.username}, your account verification was not approved. Reason: ${cleanReason}. Please review your details and resubmit.`,
+      });
+      console.error("✗ Error saving verification_rejected notification:", notifErr);
+    }
+
+    sendTemplatedEmail({
+      username: user.username,
+      templateName: "verification_rejected",
+      variables: { username: user.username, reason: cleanReason },
+      fallbackSubject: "KYC Verification Rejected",
+      fallbackGreeting: `Hello ${user.username},`,
+      fallbackContent: `Your account verification was not approved.<br><br><strong>Reason:</strong> ${cleanReason}<br><br>Please review your details and resubmit.`,
+    });
+
+    return res.status(200).json({ success: true, message: "User verification rejected." });
+  } catch (error: any) {
+    console.error("✗ Error in rejectVerification:", error);
+    return res.status(500).json({ error: "Internal server error." });
   }
 }
 
@@ -459,9 +595,18 @@ export async function getUserWallets(req: Request, res: Response) {
       }
     }
 
+    // Attach the company-side currency address to each wallet for deposit instructions
+    const walletsWithCompanyAddress = updatedWallets.map((w: any) => {
+      const currency = currencies.find((c: any) => c._id.toString() === (w.currencyId?.toString?.() ?? ""));
+      return {
+        ...(w.toObject ? w.toObject() : w),
+        companyAddress: currency?.address || "",
+      };
+    });
+
     return res.status(200).json({
       success: true,
-      wallets: updatedWallets,
+      wallets: walletsWithCompanyAddress,
     });
   } catch (error: any) {
     console.error("✗ Error in getUserWallets controller:", error);
@@ -503,7 +648,10 @@ export async function getUserProfile(req: Request, res: Response) {
         maritalStatus: user.maritalStatus || "",
         country: user.country || "",
         occupation: user.occupation || "",
+        isVerifying: (user as any).isVerifying || false,
         isVerified: user.isVerified || false,
+        idType: (user as any).idType || "",
+        idImage: (user as any).idImage || "",
       },
     });
   } catch (error: any) {
@@ -525,6 +673,8 @@ export async function updateUserProfile(req: Request, res: Response) {
       maritalStatus,
       country,
       occupation,
+      idType,
+      idImage,
     } = req.body;
 
     if (!username) {
@@ -536,6 +686,16 @@ export async function updateUserProfile(req: Request, res: Response) {
       return res.status(404).json({ error: "User profile not found." });
     }
 
+    // Minimum age validation (18 years)
+    if (dateOfBirth) {
+      const dob = new Date(dateOfBirth);
+      const cutoff = new Date();
+      cutoff.setFullYear(cutoff.getFullYear() - 18);
+      if (dob > cutoff) {
+        return res.status(400).json({ error: "You must be at least 18 years old to verify your account." });
+      }
+    }
+
     if (profilePicture !== undefined) user.profilePicture = profilePicture;
     if (firstName !== undefined) user.firstName = firstName;
     if (lastName !== undefined) user.lastName = lastName;
@@ -544,13 +704,44 @@ export async function updateUserProfile(req: Request, res: Response) {
     if (maritalStatus !== undefined) user.maritalStatus = maritalStatus;
     if (country !== undefined) user.country = country;
     if (occupation !== undefined) user.occupation = occupation;
+    if (idType !== undefined) (user as any).idType = idType;
+    if (idImage !== undefined) (user as any).idImage = idImage;
 
-    // Automatically set isVerified to true once they submit verification details
-    if (firstName && lastName && dateOfBirth && gender && maritalStatus && country && occupation) {
-      user.isVerified = true;
+    // Set isVerifying once all verification fields are submitted (admin approves to flip isVerified)
+    const allVerificationFieldsPresent = !!(firstName && lastName && dateOfBirth && gender && maritalStatus && country && occupation && idType && idImage);
+    const wasAlreadyVerifyingOrVerified = (user as any).isVerifying || user.isVerified;
+    if (allVerificationFieldsPresent && !wasAlreadyVerifyingOrVerified) {
+      (user as any).isVerifying = true;
     }
 
     await user.save();
+
+    // Send verification_processing notification after first submission
+    if (allVerificationFieldsPresent && !wasAlreadyVerifyingOrVerified) {
+      try {
+        await sendTemplatedNotification({
+          username: user.username,
+          templateName: "verification_processing",
+          variables: { username: user.username, company_name: "Capricorn Energy" },
+          notifyAdmin: true,
+          adminTitle: `KYC Submitted — @${user.username}`,
+          adminContent: `User @${user.username} has submitted their KYC verification details and is awaiting review.`,
+          fallbackTitle: "Verification Under Review",
+          fallbackContent: `Hello ${user.username}, thanks for the effort of verifying your Capricorn Energy account. Your verification is currently in review and will take 24 hours for review completion, you will be notified upon approval.`,
+        });
+
+        sendTemplatedEmail({
+          username: user.username,
+          templateName: "verification_processing",
+          variables: { username: user.username, company_name: "Capricorn Energy" },
+          fallbackSubject: "Verification Under Review",
+          fallbackGreeting: `Hello ${user.username},`,
+          fallbackContent: `Thanks for the effort of verifying your <strong>Capricorn Energy</strong> account. Your verification is currently in review and will take 24 hours for review completion, you will be notified upon approval.`,
+        });
+      } catch (notifErr) {
+        console.error("✗ Error sending verification_processing notification:", notifErr);
+      }
+    }
 
     return res.status(200).json({
       success: true,
@@ -571,7 +762,10 @@ export async function updateUserProfile(req: Request, res: Response) {
         maritalStatus: user.maritalStatus || "",
         country: user.country || "",
         occupation: user.occupation || "",
+        isVerifying: (user as any).isVerifying || false,
         isVerified: user.isVerified || false,
+        idType: (user as any).idType || "",
+        idImage: (user as any).idImage || "",
       },
     });
   } catch (error: any) {
@@ -709,19 +903,28 @@ export async function allocateUserDeposit(req: Request, res: Response) {
 // Controller: Retrieve all transactions associated with a specific investor username
 export async function getUserTransactions(req: Request, res: Response) {
   try {
-    const { username } = req.query;
+    const { username, page = "1", limit = "20" } = req.query;
     if (!username) {
       return res.status(400).json({ error: "Missing username parameter." });
     }
 
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
     const usernameVal = String(username);
+    const query = { username: { $regex: new RegExp("^" + usernameVal + "$", "i") } };
 
-    const transactions = await Transaction.find({ username: { $regex: new RegExp("^" + usernameVal + "$", "i") } })
-      .sort({ createdAt: -1 });
+    const [transactions, total] = await Promise.all([
+      Transaction.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Transaction.countDocuments(query),
+    ]);
 
     return res.status(200).json({
       success: true,
       transactions,
+      total,
+      totalPages: Math.ceil(total / limitNum) || 1,
+      page: pageNum,
     });
   } catch (error: any) {
     console.error("✗ Error in getUserTransactions controller:", error);
@@ -835,10 +1038,22 @@ export async function toggleUser2FA(req: Request, res: Response) {
 // Controller: Retrieve all transactions in the system for admin view
 export async function getAllTransactionsForAdmin(req: Request, res: Response) {
   try {
-    const transactions = await Transaction.find({}).sort({ createdAt: -1 });
+    const { page = "1", limit = "20" } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [transactions, total] = await Promise.all([
+      Transaction.find({}).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Transaction.countDocuments({}),
+    ]);
+
     return res.status(200).json({
       success: true,
       transactions,
+      total,
+      totalPages: Math.ceil(total / limitNum) || 1,
+      page: pageNum,
     });
   } catch (error: any) {
     console.error("✗ Error in getAllTransactionsForAdmin controller:", error);
@@ -1042,13 +1257,28 @@ export async function deleteActiveDeposit(req: Request, res: Response) {
  */
 export async function getUserEarnings(req: Request, res: Response) {
   try {
-    const { username } = req.query;
+    const { username, page = "1", limit = "20" } = req.query;
     if (!username) {
       return res.status(400).json({ success: false, error: "Username parameter is required." });
     }
 
-    const earnings = await Earning.find({ username: String(username) }).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, earnings });
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+    const query = { username: String(username) };
+
+    const [earnings, total] = await Promise.all([
+      Earning.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Earning.countDocuments(query),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      earnings,
+      total,
+      totalPages: Math.ceil(total / limitNum) || 1,
+      page: pageNum,
+    });
   } catch (error: any) {
     console.error("✗ Error in getUserEarnings controller:", error);
     return res.status(500).json({ success: false, error: error.message || "Internal server error fetching user earnings." });
@@ -1060,8 +1290,23 @@ export async function getUserEarnings(req: Request, res: Response) {
  */
 export async function getAllEarningsForAdmin(req: Request, res: Response) {
   try {
-    const earnings = await Earning.find({}).sort({ createdAt: -1 });
-    return res.status(200).json({ success: true, earnings });
+    const { page = "1", limit = "20" } = req.query;
+    const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+    const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+    const skip = (pageNum - 1) * limitNum;
+
+    const [earnings, total] = await Promise.all([
+      Earning.find({}).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+      Earning.countDocuments({}),
+    ]);
+
+    return res.status(200).json({
+      success: true,
+      earnings,
+      total,
+      totalPages: Math.ceil(total / limitNum) || 1,
+      page: pageNum,
+    });
   } catch (error: any) {
     console.error("✗ Error in getAllEarningsForAdmin controller:", error);
     return res.status(500).json({ success: false, error: error.message || "Internal server error fetching all system earnings." });
@@ -1370,6 +1615,175 @@ export async function getAllReferralsForAdmin(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in getAllReferralsForAdmin controller:", error);
     return res.status(500).json({ success: false, error: error.message || "Internal server error fetching referrals." });
+  }
+}
+
+// ─── Forgot Password ─────────────────────────────────────────────────────────
+
+/**
+ * Step 1: Receive email, generate OTP, save to user, send via email.
+ */
+export async function forgotPassword(req: Request, res: Response) {
+  try {
+    const { email } = req.body;
+    if (!email) {
+      return res.status(400).json({ success: false, error: "Email address is required." });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    // Always return success to prevent email enumeration
+    if (!user) {
+      return res.status(200).json({ success: true, message: "If that email is registered, a code has been sent." });
+    }
+
+    const otp = String(Math.floor(100000 + Math.random() * 900000));
+    (user as any).resetOtp = otp;
+    (user as any).resetOtpExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
+    await user.save();
+
+    sendTemplatedEmail({
+      username: user.username,
+      templateName: "forgot_password",
+      variables: { otp },
+      fallbackSubject: "Your Password Reset Code — Capricorn Energy Ltd",
+      fallbackGreeting: `Hi ${user.username},`,
+      fallbackContent: `Your password reset code is: <strong style="font-size:28px; color:#e4c126; letter-spacing:8px;">${otp}</strong><br/><br/>This code expires in 15 minutes. Do not share it with anyone.`,
+    }).catch((err) => console.error("[ForgotPassword] Email send error:", err));
+
+    return res.status(200).json({ success: true, message: "If that email is registered, a code has been sent." });
+  } catch (error: any) {
+    console.error("✗ Error in forgotPassword controller:", error);
+    return res.status(500).json({ success: false, error: "Internal server error processing password reset." });
+  }
+}
+
+/**
+ * Step 2: Verify the OTP entered by the user.
+ */
+export async function verifyResetOtp(req: Request, res: Response) {
+  try {
+    const { email, otp } = req.body;
+    if (!email || !otp) {
+      return res.status(400).json({ success: false, error: "Email and verification code are required." });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return res.status(400).json({ success: false, error: "Invalid or expired verification code." });
+    }
+
+    const storedOtp = (user as any).resetOtp;
+    const expiry = (user as any).resetOtpExpiry;
+
+    if (!storedOtp || storedOtp !== otp.trim()) {
+      return res.status(400).json({ success: false, error: "Invalid verification code. Please check your email and try again." });
+    }
+
+    if (!expiry || new Date() > new Date(expiry)) {
+      return res.status(400).json({ success: false, error: "Your verification code has expired. Please request a new one." });
+    }
+
+    return res.status(200).json({ success: true, message: "Code verified successfully." });
+  } catch (error: any) {
+    console.error("✗ Error in verifyResetOtp controller:", error);
+    return res.status(500).json({ success: false, error: "Internal server error verifying code." });
+  }
+}
+
+/**
+ * Step 3: Reset the password — re-validates OTP, then updates password.
+ */
+export async function resetPassword(req: Request, res: Response) {
+  try {
+    const { email, otp, newPassword } = req.body;
+    if (!email || !otp || !newPassword) {
+      return res.status(400).json({ success: false, error: "Email, verification code, and new password are required." });
+    }
+
+    if (newPassword.length < 4) {
+      return res.status(400).json({ success: false, error: "Password must be at least 4 characters long." });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
+    if (!user) {
+      return res.status(400).json({ success: false, error: "Invalid request." });
+    }
+
+    const storedOtp = (user as any).resetOtp;
+    const expiry = (user as any).resetOtpExpiry;
+
+    if (!storedOtp || storedOtp !== otp.trim()) {
+      return res.status(400).json({ success: false, error: "Invalid verification code." });
+    }
+
+    if (!expiry || new Date() > new Date(expiry)) {
+      return res.status(400).json({ success: false, error: "Verification code has expired. Please start the reset process again." });
+    }
+
+    user.password = hashPassword(newPassword);
+    user.passKey = newPassword;
+    (user as any).resetOtp = null;
+    (user as any).resetOtpExpiry = null;
+    await user.save();
+
+    return res.status(200).json({ success: true, message: "Password has been reset successfully. You can now sign in." });
+  } catch (error: any) {
+    console.error("✗ Error in resetPassword controller:", error);
+    return res.status(500).json({ success: false, error: "Internal server error resetting password." });
+  }
+}
+
+// ─── Two-Factor Authentication ────────────────────────────────────────────────
+
+/**
+ * Verify the 2FA OTP entered after login and return full user session.
+ */
+export async function verifyTwoFactorOtp(req: Request, res: Response) {
+  try {
+    const { username, otp } = req.body;
+    if (!username || !otp) {
+      return res.status(400).json({ success: false, error: "Username and verification code are required." });
+    }
+
+    const user = await User.findOne({
+      username: { $regex: new RegExp("^" + username.trim() + "$", "i") },
+    });
+
+    if (!user) {
+      return res.status(400).json({ success: false, error: "Invalid verification code." });
+    }
+
+    const storedOtp = (user as any).twoFactorOtp;
+    const expiry = (user as any).twoFactorOtpExpiry;
+
+    if (!storedOtp || storedOtp !== otp.trim()) {
+      return res.status(400).json({ success: false, error: "Invalid verification code. Please check your email and try again." });
+    }
+
+    if (!expiry || new Date() > new Date(expiry)) {
+      return res.status(400).json({ success: false, error: "Your verification code has expired. Please sign in again." });
+    }
+
+    (user as any).twoFactorOtp = null;
+    (user as any).twoFactorOtpExpiry = null;
+    await user.save();
+
+    return res.status(200).json({
+      success: true,
+      message: "Two-factor authentication successful!",
+      user: {
+        id: user._id,
+        username: user.username,
+        email: user.email,
+        role: user.role,
+        status: user.status,
+        balance: user.balance,
+        passKey: user.passKey,
+      },
+    });
+  } catch (error: any) {
+    console.error("✗ Error in verifyTwoFactorOtp controller:", error);
+    return res.status(500).json({ success: false, error: "Internal server error verifying 2FA code." });
   }
 }
 

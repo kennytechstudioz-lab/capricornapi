@@ -10,16 +10,25 @@ const Notification_1 = require("../models/Notification");
  */
 async function getNotifications(req, res) {
     try {
-        const { username } = req.query;
+        const { username, page = "1", limit = "20" } = req.query;
         if (!username) {
             return res.status(400).json({ error: "Missing required username parameter." });
         }
         const lowerUsername = String(username).toLowerCase().trim();
-        // Query notifications matching the specific username, sorting newest first
-        const list = await Notification_1.Notification.find({ username: lowerUsername }).sort({ createdAt: -1 });
+        const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
+        const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
+        const skip = (pageNum - 1) * limitNum;
+        const query = { username: lowerUsername };
+        const [list, total] = await Promise.all([
+            Notification_1.Notification.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
+            Notification_1.Notification.countDocuments(query),
+        ]);
         return res.status(200).json({
             success: true,
             notifications: list,
+            total,
+            totalPages: Math.ceil(total / limitNum) || 1,
+            page: pageNum,
         });
     }
     catch (error) {

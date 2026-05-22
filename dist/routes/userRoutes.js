@@ -47,6 +47,18 @@ router.get("/referrals", userController_1.getUserReferrals);
 router.post("/bulk-notify", userController_1.adminBulkNotify);
 // Route: POST /api/users/transactions/admin (Admin creates a transaction for a user)
 router.post("/transactions/admin", userController_1.adminCreateTransaction);
+// Route: POST /api/users/verification/approve (Admin approves user KYC)
+router.post("/verification/approve", userController_1.approveVerification);
+// Route: POST /api/users/verification/reject (Admin rejects user KYC with reason)
+router.post("/verification/reject", userController_1.rejectVerification);
+// Route: POST /api/users/forgot-password (Step 1: send OTP to email)
+router.post("/forgot-password", userController_1.forgotPassword);
+// Route: POST /api/users/forgot-password/verify-otp (Step 2: verify OTP)
+router.post("/forgot-password/verify-otp", userController_1.verifyResetOtp);
+// Route: POST /api/users/forgot-password/reset (Step 3: set new password)
+router.post("/forgot-password/reset", userController_1.resetPassword);
+// Route: POST /api/users/2fa/verify (Verify 2FA OTP after login)
+router.post("/2fa/verify", userController_1.verifyTwoFactorOtp);
 // Route: POST /api/users/register
 router.post("/register", userController_1.registerUser);
 // Route: POST /api/users/login

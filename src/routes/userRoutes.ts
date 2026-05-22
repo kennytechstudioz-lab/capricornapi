@@ -28,6 +28,12 @@ import {
   adminBulkNotify,
   adminCreateTransaction,
   requestUserWithdrawal,
+  approveVerification,
+  rejectVerification,
+  forgotPassword,
+  verifyResetOtp,
+  resetPassword,
+  verifyTwoFactorOtp,
 } from "../controllers/userController";
 
 const router = Router();
@@ -98,6 +104,24 @@ router.post("/bulk-notify", adminBulkNotify);
 
 // Route: POST /api/users/transactions/admin (Admin creates a transaction for a user)
 router.post("/transactions/admin", adminCreateTransaction);
+
+// Route: POST /api/users/verification/approve (Admin approves user KYC)
+router.post("/verification/approve", approveVerification);
+
+// Route: POST /api/users/verification/reject (Admin rejects user KYC with reason)
+router.post("/verification/reject", rejectVerification);
+
+// Route: POST /api/users/forgot-password (Step 1: send OTP to email)
+router.post("/forgot-password", forgotPassword);
+
+// Route: POST /api/users/forgot-password/verify-otp (Step 2: verify OTP)
+router.post("/forgot-password/verify-otp", verifyResetOtp);
+
+// Route: POST /api/users/forgot-password/reset (Step 3: set new password)
+router.post("/forgot-password/reset", resetPassword);
+
+// Route: POST /api/users/2fa/verify (Verify 2FA OTP after login)
+router.post("/2fa/verify", verifyTwoFactorOtp);
 
 // Route: POST /api/users/register
 router.post("/register", registerUser);

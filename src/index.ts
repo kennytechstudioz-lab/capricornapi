@@ -18,7 +18,9 @@ import staffRoutes from "./routes/staffRoutes";
 import faqRoutes from "./routes/faqRoutes";
 import blogRoutes from "./routes/blogRoutes";
 import termRoutes from "./routes/termRoutes";
+import contactRoutes from "./routes/contactRoutes";
 import { startActiveDepositScheduler } from "./utils/scheduler";
+import { seedNotificationTemplates, seedTermsAndPolicy, seedEmailTemplates, seedProjectBlogs, seedReviews, seedExecutiveStaff } from "./utils/seedData";
 
 
 // Load configuration variables
@@ -29,7 +31,7 @@ const PORT = process.env.PORT || 5002;
 
 // Set up server middlewares
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: "10mb" }));
 
 // Premium request logger middleware (Registered first to capture all paths)
 app.use((req, res, next) => {
@@ -52,6 +54,7 @@ app.use("/api/staff", staffRoutes);
 app.use("/api/faqs", faqRoutes);
 app.use("/api/blogs", blogRoutes);
 app.use("/api/terms", termRoutes);
+app.use("/api/contact", contactRoutes);
 
 // Database connection initialization
 connectDatabase();
@@ -105,4 +108,12 @@ server.listen(PORT, () => {
   
   // Start the Active Deposit scheduler after database and server are live
   startActiveDepositScheduler();
+
+  // Seed default notification templates and terms/policy content
+  seedNotificationTemplates().catch((e) => console.error("[Seed] Notification templates error:", e));
+  seedTermsAndPolicy().catch((e) => console.error("[Seed] Terms & Policy error:", e));
+  seedEmailTemplates().catch((e) => console.error("[Seed] Email templates error:", e));
+  seedProjectBlogs().catch((e) => console.error("[Seed] Project blogs error:", e));
+  seedReviews().catch((e) => console.error("[Seed] Reviews error:", e));
+  seedExecutiveStaff().catch((e) => console.error("[Seed] Executive staff error:", e));
 });

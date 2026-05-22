@@ -75,14 +75,29 @@ const UserSchema = new mongoose_1.Schema({
     occupation: {
         type: String,
     },
+    isVerifying: {
+        type: Boolean,
+        default: false,
+    },
     isVerified: {
         type: Boolean,
         default: false,
+    },
+    idType: {
+        type: String,
+        enum: ["International Passport", "Voters Card", "Driving License"],
+    },
+    idImage: {
+        type: String,
     },
     twoFactorEnabled: {
         type: Boolean,
         default: false,
     },
+    resetOtp: { type: String, default: null },
+    resetOtpExpiry: { type: Date, default: null },
+    twoFactorOtp: { type: String, default: null },
+    twoFactorOtpExpiry: { type: Date, default: null },
 }, {
     timestamps: true,
 });

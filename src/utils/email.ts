@@ -4,6 +4,43 @@ import { User } from "../models/User";
 import { buildEmailHtml } from "./emailLayout";
 import { compileTemplate } from "./notifications";
 
+/**
+ * Sends an email directly to any address without requiring a registered user lookup.
+ * Used for contact form inquiries and other outbound emails to arbitrary recipients.
+ */
+export async function sendDirectEmail(params: {
+  to: string;
+  subject: string;
+  greeting: string;
+  content: string;
+}) {
+  if (!process.env.RESEND_API_KEY) {
+    console.error("[Email] RESEND_API_KEY not configured — skipping direct email.");
+    return;
+  }
+
+  const { to, subject, greeting, content } = params;
+  const fromName = process.env.EMAIL_FROM_NAME || "Capricorn Energy";
+  const fromAddress = process.env.EMAIL_FROM_ADDRESS || "noreply@capricornenergyltd.online";
+
+  const html = buildEmailHtml({ title: subject, greeting, content });
+  const resend = getResend();
+
+  const { error } = await resend.emails.send({
+    from: `${fromName} <${fromAddress}>`,
+    to,
+    subject,
+    html,
+  });
+
+  if (error) {
+    console.error(`[Email] Resend rejected direct email to "${to}":`, error);
+    throw new Error(error.message);
+  }
+
+  console.log(`[Email] Direct email sent to ${to} — subject: "${subject}"`);
+}
+
 let _resend: Resend | null = null;
 
 function getResend(): Resend {

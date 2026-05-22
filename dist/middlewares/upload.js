@@ -16,12 +16,11 @@ exports.upload = (0, multer_1.default)({
         fileSize: 5 * 1024 * 1024, // Strict 5MB limit for clean uploads
     },
     fileFilter: (req, file, cb) => {
-        // Enforce image files only to maintain high-quality portfolio assets
-        if (file.mimetype.startsWith("image/")) {
+        if (file.mimetype.startsWith("image/") || file.mimetype === "application/pdf") {
             cb(null, true);
         }
         else {
-            cb(new Error("Only graphic image files (jpeg, png, webp, gif) are allowed!"), false);
+            cb(new Error("Only image files (jpeg, png, webp) and PDF documents are allowed."), false);
         }
     },
 });

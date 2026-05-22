@@ -13,11 +13,10 @@ export const upload = multer({
     fileSize: 5 * 1024 * 1024, // Strict 5MB limit for clean uploads
   },
   fileFilter: (req: Request, file: Express.Multer.File, cb: multer.FileFilterCallback) => {
-    // Enforce image files only to maintain high-quality portfolio assets
-    if (file.mimetype.startsWith("image/")) {
+    if (file.mimetype.startsWith("image/") || file.mimetype === "application/pdf") {
       cb(null, true);
     } else {
-      cb(new Error("Only graphic image files (jpeg, png, webp, gif) are allowed!") as any, false);
+      cb(new Error("Only image files (jpeg, png, webp) and PDF documents are allowed.") as any, false);
     }
   },
 });

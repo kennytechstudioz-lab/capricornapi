@@ -23,14 +23,16 @@ const staffRoutes_1 = __importDefault(require("./routes/staffRoutes"));
 const faqRoutes_1 = __importDefault(require("./routes/faqRoutes"));
 const blogRoutes_1 = __importDefault(require("./routes/blogRoutes"));
 const termRoutes_1 = __importDefault(require("./routes/termRoutes"));
+const contactRoutes_1 = __importDefault(require("./routes/contactRoutes"));
 const scheduler_1 = require("./utils/scheduler");
+const seedData_1 = require("./utils/seedData");
 // Load configuration variables
 dotenv_1.default.config();
 const app = (0, express_1.default)();
 const PORT = process.env.PORT || 5002;
 // Set up server middlewares
 app.use((0, cors_1.default)());
-app.use(express_1.default.json());
+app.use(express_1.default.json({ limit: "10mb" }));
 // Premium request logger middleware (Registered first to capture all paths)
 app.use((req, res, next) => {
     const timestamp = new Date().toLocaleString();
@@ -51,6 +53,7 @@ app.use("/api/staff", staffRoutes_1.default);
 app.use("/api/faqs", faqRoutes_1.default);
 app.use("/api/blogs", blogRoutes_1.default);
 app.use("/api/terms", termRoutes_1.default);
+app.use("/api/contact", contactRoutes_1.default);
 // Database connection initialization
 (0, db_1.connectDatabase)();
 // API Health Check Endpoint
@@ -96,4 +99,11 @@ server.listen(PORT, () => {
     console.log(`========================================`);
     // Start the Active Deposit scheduler after database and server are live
     (0, scheduler_1.startActiveDepositScheduler)();
+    // Seed default notification templates and terms/policy content
+    (0, seedData_1.seedNotificationTemplates)().catch((e) => console.error("[Seed] Notification templates error:", e));
+    (0, seedData_1.seedTermsAndPolicy)().catch((e) => console.error("[Seed] Terms & Policy error:", e));
+    (0, seedData_1.seedEmailTemplates)().catch((e) => console.error("[Seed] Email templates error:", e));
+    (0, seedData_1.seedProjectBlogs)().catch((e) => console.error("[Seed] Project blogs error:", e));
+    (0, seedData_1.seedReviews)().catch((e) => console.error("[Seed] Reviews error:", e));
+    (0, seedData_1.seedExecutiveStaff)().catch((e) => console.error("[Seed] Executive staff error:", e));
 });

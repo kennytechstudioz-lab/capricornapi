@@ -6,6 +6,12 @@ export async function getAllBlogs(req: Request, res: Response) {
   return res.json({ success: true, blogs });
 }
 
+export async function getBlogById(req: Request, res: Response) {
+  const blog = await Blog.findById(req.params.id);
+  if (!blog) return res.status(404).json({ error: "Blog post not found." });
+  return res.json({ success: true, blog });
+}
+
 export async function createBlog(req: Request, res: Response) {
   const { category, title, subtitle, picture, author, date, content } = req.body;
   if (!category || !title || !author || !date || !content)

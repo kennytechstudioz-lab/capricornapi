@@ -1,6 +1,7 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.getAllBlogs = getAllBlogs;
+exports.getBlogById = getBlogById;
 exports.createBlog = createBlog;
 exports.updateBlog = updateBlog;
 exports.deleteBlog = deleteBlog;
@@ -8,6 +9,12 @@ const Blog_1 = require("../models/Blog");
 async function getAllBlogs(req, res) {
     const blogs = await Blog_1.Blog.find().sort({ createdAt: -1 });
     return res.json({ success: true, blogs });
+}
+async function getBlogById(req, res) {
+    const blog = await Blog_1.Blog.findById(req.params.id);
+    if (!blog)
+        return res.status(404).json({ error: "Blog post not found." });
+    return res.json({ success: true, blog });
 }
 async function createBlog(req, res) {
     const { category, title, subtitle, picture, author, date, content } = req.body;

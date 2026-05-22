@@ -1,11 +1,38 @@
 "use strict";
 Object.defineProperty(exports, "__esModule", { value: true });
+exports.sendDirectEmail = sendDirectEmail;
 exports.sendTemplatedEmail = sendTemplatedEmail;
 const resend_1 = require("resend");
 const EmailTemplate_1 = require("../models/EmailTemplate");
 const User_1 = require("../models/User");
 const emailLayout_1 = require("./emailLayout");
 const notifications_1 = require("./notifications");
+/**
+ * Sends an email directly to any address without requiring a registered user lookup.
+ * Used for contact form inquiries and other outbound emails to arbitrary recipients.
+ */
+async function sendDirectEmail(params) {
+    if (!process.env.RESEND_API_KEY) {
+        console.error("[Email] RESEND_API_KEY not configured — skipping direct email.");
+        return;
+    }
+    const { to, subject, greeting, content } = params;
+    const fromName = process.env.EMAIL_FROM_NAME || "Capricorn Energy";
+    const fromAddress = process.env.EMAIL_FROM_ADDRESS || "noreply@capricornenergyltd.online";
+    const html = (0, emailLayout_1.buildEmailHtml)({ title: subject, greeting, content });
+    const resend = getResend();
+    const { error } = await resend.emails.send({
+        from: `${fromName} <${fromAddress}>`,
+        to,
+        subject,
+        html,
+    });
+    if (error) {
+        console.error(`[Email] Resend rejected direct email to "${to}":`, error);
+        throw new Error(error.message);
+    }
+    console.log(`[Email] Direct email sent to ${to} — subject: "${subject}"`);
+}
 let _resend = null;
 function getResend() {
     if (_resend)
