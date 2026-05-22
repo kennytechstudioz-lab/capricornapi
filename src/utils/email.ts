@@ -29,6 +29,11 @@ export async function sendTemplatedEmail(params: {
 }) {
   const { username, templateName, variables, fallbackSubject, fallbackGreeting, fallbackContent } = params;
 
+  if (!process.env.EMAIL_FROM_ADDRESS || !process.env.EMAIL_PASS) {
+    console.error(`[Email] SMTP credentials not configured (EMAIL_FROM_ADDRESS / EMAIL_PASS missing) — skipping "${templateName}" for "${username}"`);
+    return;
+  }
+
   try {
     // Resolve recipient email from username
     const user = await User.findOne({ username: { $regex: new RegExp("^" + username.trim() + "$", "i") } });

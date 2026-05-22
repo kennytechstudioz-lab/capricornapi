@@ -8,6 +8,7 @@ import { ActiveDeposit } from "../models/ActiveDeposit";
 import { Earning } from "../models/Earning";
 import { Referral } from "../models/Referral";
 import { Notification } from "../models/Notification";
+import { Review } from "../models/Review";
 import { hashPassword } from "../utils/hash";
 import { sendTemplatedNotification } from "../utils/notifications";
 import { sendTemplatedEmail } from "../utils/email";
@@ -144,7 +145,7 @@ export async function registerUser(req: Request, res: Response) {
       fallbackSubject: "Welcome to Capricorn Energy",
       fallbackGreeting: `Hi ${cleanUsername},`,
       fallbackContent: `Your account has been successfully created on Capricorn Energy. You can now log in and start exploring our clean energy investment plans.`,
-    });
+    }).catch((err) => console.error("[Email] Registration welcome email failed:", err));
 
     return res.status(201).json({
       success: true,
@@ -315,6 +316,18 @@ export async function deleteUser(req: Request, res: Response) {
         error: "Target user account not found.",
       });
     }
+
+    const username = user.username;
+    await Promise.all([
+      Transaction.deleteMany({ username }),
+      ActiveDeposit.deleteMany({ username }),
+      Earning.deleteMany({ username }),
+      Referral.deleteMany({ username }),
+      Wallet.deleteMany({ username }),
+      Notification.deleteMany({ username }),
+      Review.deleteMany({ userId: user._id }),
+    ]);
+
     return res.status(200).json({
       success: true,
       message: "User account deleted successfully!",
