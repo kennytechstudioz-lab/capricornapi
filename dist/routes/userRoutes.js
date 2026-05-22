@@ -45,6 +45,8 @@ router.get("/referrals/all", userController_1.getAllReferralsForAdmin);
 router.get("/referrals", userController_1.getUserReferrals);
 // Route: POST /api/users/bulk-notify (Admin sends in-app notification to selected users)
 router.post("/bulk-notify", userController_1.adminBulkNotify);
+// Route: POST /api/users/bulk-email (Admin sends templated email to selected users)
+router.post("/bulk-email", userController_1.adminBulkEmail);
 // Route: POST /api/users/transactions/admin (Admin creates a transaction for a user)
 router.post("/transactions/admin", userController_1.adminCreateTransaction);
 // Route: POST /api/users/verification/approve (Admin approves user KYC)

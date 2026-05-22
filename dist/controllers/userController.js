@@ -25,6 +25,7 @@ exports.deleteActiveDeposit = deleteActiveDeposit;
 exports.getUserEarnings = getUserEarnings;
 exports.getAllEarningsForAdmin = getAllEarningsForAdmin;
 exports.deleteEarning = deleteEarning;
+exports.adminBulkEmail = adminBulkEmail;
 exports.adminBulkNotify = adminBulkNotify;
 exports.requestUserWithdrawal = requestUserWithdrawal;
 exports.adminCreateTransaction = adminCreateTransaction;
@@ -1254,6 +1255,28 @@ async function deleteEarning(req, res) {
 /**
  * Admin: creates an in-app notification for a batch of users by username.
  */
+async function adminBulkEmail(req, res) {
+    try {
+        const { usernames, templateName } = req.body;
+        if (!Array.isArray(usernames) || !usernames.length || !templateName) {
+            return res.status(400).json({ error: "usernames (array) and templateName are required." });
+        }
+        const results = await Promise.allSettled(usernames.map((username) => (0, email_1.sendTemplatedEmail)({
+            username: String(username).toLowerCase().trim(),
+            templateName: String(templateName),
+            variables: {},
+            fallbackSubject: "Message from Capricorn Energy",
+            fallbackGreeting: `Hello {{username}},`,
+            fallbackContent: "You have a new message from the Capricorn Energy team.",
+        })));
+        const sent = results.filter((r) => r.status === "fulfilled").length;
+        return res.status(200).json({ success: true, message: `Email sent to ${sent} of ${usernames.length} user(s).` });
+    }
+    catch (error) {
+        console.error("✗ Error in adminBulkEmail:", error);
+        return res.status(500).json({ error: "Internal server error sending bulk emails." });
+    }
+}
 async function adminBulkNotify(req, res) {
     try {
         const { usernames, title, message } = req.body;

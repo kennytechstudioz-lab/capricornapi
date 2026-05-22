@@ -26,6 +26,7 @@ import {
   getUserReferrals,
   getAllReferralsForAdmin,
   adminBulkNotify,
+  adminBulkEmail,
   adminCreateTransaction,
   requestUserWithdrawal,
   approveVerification,
@@ -101,6 +102,9 @@ router.get("/referrals", getUserReferrals);
 
 // Route: POST /api/users/bulk-notify (Admin sends in-app notification to selected users)
 router.post("/bulk-notify", adminBulkNotify);
+
+// Route: POST /api/users/bulk-email (Admin sends templated email to selected users)
+router.post("/bulk-email", adminBulkEmail);
 
 // Route: POST /api/users/transactions/admin (Admin creates a transaction for a user)
 router.post("/transactions/admin", adminCreateTransaction);
