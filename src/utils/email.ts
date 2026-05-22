@@ -15,8 +15,6 @@ const transportOptions: SMTPTransport.Options = {
     pass: process.env.EMAIL_PASS,
   },
 };
-// Force IPv4 — Railway does not support IPv6 outbound; not in @types/nodemailer
-(transportOptions as any).family = 4;
 
 const transporter = nodemailer.createTransport(transportOptions);
 
