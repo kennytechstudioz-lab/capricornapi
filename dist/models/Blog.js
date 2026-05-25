@@ -10,6 +10,8 @@ const BlogSchema = new mongoose_1.Schema({
     author: { type: String, required: [true, "Author is required."], trim: true },
     date: { type: String, required: [true, "Date is required."], trim: true },
     content: { type: String, required: [true, "Content is required."] },
+    shortName: { type: String, default: "", trim: true },
+    abbreviation: { type: String, default: "", trim: true },
 }, { timestamps: true });
 exports.Blog = (0, mongoose_1.model)("Blog", BlogSchema);
 exports.default = exports.Blog;

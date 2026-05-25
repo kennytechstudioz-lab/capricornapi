@@ -9,9 +9,13 @@ const BlogSchema = new Schema(
     author: { type: String, required: [true, "Author is required."], trim: true },
     date: { type: String, required: [true, "Date is required."], trim: true },
     content: { type: String, required: [true, "Content is required."] },
+    shortName: { type: String, default: "", trim: true },
+    abbreviation: { type: String, default: "", trim: true },
   },
   { timestamps: true }
 );
+
+
 
 export const Blog = model("Blog", BlogSchema);
 export default Blog;
