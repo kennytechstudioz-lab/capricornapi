@@ -51,7 +51,7 @@ const TransactionSchema = new mongoose_1.Schema({
     transactionType: {
         type: String,
         required: true,
-        enum: ["deposit", "withdrawal", "referral", "bonus"],
+        enum: ["deposit", "withdrawal", "referral", "bonus", "capital_access"],
         default: "deposit",
     },
     method: {

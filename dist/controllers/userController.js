@@ -28,6 +28,7 @@ exports.deleteEarning = deleteEarning;
 exports.adminBulkEmail = adminBulkEmail;
 exports.adminBulkNotify = adminBulkNotify;
 exports.requestUserWithdrawal = requestUserWithdrawal;
+exports.requestCapitalAccess = requestCapitalAccess;
 exports.adminCreateTransaction = adminCreateTransaction;
 exports.getUserReferrals = getUserReferrals;
 exports.getAllReferralsForAdmin = getAllReferralsForAdmin;
@@ -1121,6 +1122,13 @@ async function updateTransactionStatusByAdmin(req, res) {
                 console.error("✗ Failed to dispatch deposit_rejected notification:", err);
             }
         }
+        else if (transaction.transactionType === "capital_access" && status === "completed") {
+            const wallet = await Wallet_1.Wallet.findById(transaction.walletId);
+            if (wallet) {
+                wallet.balance = (wallet.balance || 0) + transaction.amount;
+                await wallet.save();
+            }
+        }
         return res.status(200).json({
             success: true,
             message: `Transaction successfully ${status}!`,
@@ -1360,6 +1368,47 @@ async function requestUserWithdrawal(req, res) {
     catch (error) {
         console.error("✗ Error in requestUserWithdrawal:", error);
         return res.status(500).json({ error: "Internal server error processing withdrawal." });
+    }
+}
+async function requestCapitalAccess(req, res) {
+    try {
+        const { username, walletSymbol, amount, planId } = req.body;
+        if (!username || !walletSymbol || !amount || !planId) {
+            return res.status(400).json({ error: "Missing required parameters." });
+        }
+        const plan = await Plan_1.Plan.findById(planId);
+        if (!plan) {
+            return res.status(404).json({ error: "Investment plan not found." });
+        }
+        const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+        if (!user)
+            return res.status(404).json({ error: "User not found." });
+        const wallet = await Wallet_1.Wallet.findOne({
+            username: user.username,
+            currencySymbol: { $regex: new RegExp("^" + String(walletSymbol).trim() + "$", "i") },
+        });
+        if (!wallet)
+            return res.status(404).json({ error: `No ${walletSymbol} wallet found.` });
+        const transaction = await Transaction_1.Transaction.create({
+            currencyId: wallet.currencyId,
+            currencyLogo: wallet.currencyLogo || "",
+            currencyName: wallet.currencyName,
+            currencySymbol: wallet.currencySymbol,
+            walletId: wallet._id,
+            username: user.username,
+            planDuration: plan.duration,
+            planPercentage: plan.percent,
+            planReferralPercent: plan.referralPercent,
+            amount: parseFloat(amount),
+            transactionType: "capital_access",
+            method: "direct",
+            status: "pending",
+        });
+        return res.status(201).json({ success: true, message: "Capital Access request submitted.", transaction });
+    }
+    catch (error) {
+        console.error("✗ Error in requestCapitalAccess:", error);
+        return res.status(500).json({ error: "Internal server error processing capital access." });
     }
 }
 async function adminCreateTransaction(req, res) {

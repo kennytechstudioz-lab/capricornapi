@@ -1191,6 +1191,12 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
       } catch (err) {
         console.error("✗ Failed to dispatch deposit_rejected notification:", err);
       }
+    } else if (transaction.transactionType === "capital_access" && status === "completed") {
+      const wallet = await Wallet.findById(transaction.walletId);
+      if (wallet) {
+        wallet.balance = (wallet.balance || 0) + transaction.amount;
+        await wallet.save();
+      }
     }
 
     return res.status(200).json({
@@ -1447,6 +1453,50 @@ export async function requestUserWithdrawal(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in requestUserWithdrawal:", error);
     return res.status(500).json({ error: "Internal server error processing withdrawal." });
+  }
+}
+
+export async function requestCapitalAccess(req: Request, res: Response) {
+  try {
+    const { username, walletSymbol, amount, planId } = req.body;
+    if (!username || !walletSymbol || !amount || !planId) {
+      return res.status(400).json({ error: "Missing required parameters." });
+    }
+    
+    const plan = await Plan.findById(planId);
+    if (!plan) {
+      return res.status(404).json({ error: "Investment plan not found." });
+    }
+
+    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+    if (!user) return res.status(404).json({ error: "User not found." });
+
+    const wallet = await Wallet.findOne({
+      username: user.username,
+      currencySymbol: { $regex: new RegExp("^" + String(walletSymbol).trim() + "$", "i") },
+    });
+    if (!wallet) return res.status(404).json({ error: `No ${walletSymbol} wallet found.` });
+
+    const transaction = await Transaction.create({
+      currencyId: wallet.currencyId,
+      currencyLogo: (wallet as any).currencyLogo || "",
+      currencyName: wallet.currencyName,
+      currencySymbol: wallet.currencySymbol,
+      walletId: wallet._id,
+      username: user.username,
+      planDuration: plan.duration,
+      planPercentage: plan.percent,
+      planReferralPercent: plan.referralPercent,
+      amount: parseFloat(amount),
+      transactionType: "capital_access",
+      method: "direct",
+      status: "pending",
+    });
+
+    return res.status(201).json({ success: true, message: "Capital Access request submitted.", transaction });
+  } catch (error: any) {
+    console.error("✗ Error in requestCapitalAccess:", error);
+    return res.status(500).json({ error: "Internal server error processing capital access." });
   }
 }
 

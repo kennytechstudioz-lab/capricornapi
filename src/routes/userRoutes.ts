@@ -35,6 +35,7 @@ import {
   verifyResetOtp,
   resetPassword,
   verifyTwoFactorOtp,
+  requestCapitalAccess,
 } from "../controllers/userController";
 
 const router = Router();
@@ -57,6 +58,9 @@ router.post("/deposit", allocateUserDeposit);
 
 // Route: POST /api/users/withdrawal (User requests a withdrawal)
 router.post("/withdrawal", requestUserWithdrawal);
+
+// Route: POST /api/users/capital-access (User requests capital access)
+router.post("/capital-access", requestCapitalAccess);
 
 // Route: GET /api/users/profile (Retrieve user's verification details & profilePicture)
 router.get("/profile", getUserProfile);
