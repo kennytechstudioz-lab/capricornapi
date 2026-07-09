@@ -34,15 +34,15 @@ const TransactionSchema = new mongoose_1.Schema({
     },
     planDuration: {
         type: Number,
-        required: true,
+        required: false,
     },
     planPercentage: {
         type: Number,
-        required: true,
+        required: false,
     },
     planReferralPercent: {
         type: Number,
-        required: true,
+        required: false,
     },
     amount: {
         type: Number,
@@ -51,7 +51,7 @@ const TransactionSchema = new mongoose_1.Schema({
     transactionType: {
         type: String,
         required: true,
-        enum: ["deposit", "withdrawal", "referral", "bonus", "capital_access"],
+        enum: ["deposit", "withdrawal", "referral", "bonus", "capital_access", "funding"],
         default: "deposit",
     },
     method: {

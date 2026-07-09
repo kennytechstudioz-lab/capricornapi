@@ -10,6 +10,7 @@ import {
   getUserProfile,
   updateUserProfile,
   allocateUserDeposit,
+  fundUserWallet,
   getUserTransactions,
   updateUserWalletAddress,
   changeUserPassword,
@@ -55,6 +56,9 @@ router.put("/2fa", toggleUser2FA);
 
 // Route: POST /api/users/deposit (Allocate or deposit clean energy capital)
 router.post("/deposit", allocateUserDeposit);
+
+// Route: POST /api/users/fund (Fund user wallet)
+router.post("/fund", fundUserWallet);
 
 // Route: POST /api/users/withdrawal (User requests a withdrawal)
 router.post("/withdrawal", requestUserWithdrawal);

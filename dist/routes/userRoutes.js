@@ -13,6 +13,8 @@ router.put("/password", userController_1.changeUserPassword);
 router.put("/2fa", userController_1.toggleUser2FA);
 // Route: POST /api/users/deposit (Allocate or deposit clean energy capital)
 router.post("/deposit", userController_1.allocateUserDeposit);
+// Route: POST /api/users/fund (Fund user wallet)
+router.post("/fund", userController_1.fundUserWallet);
 // Route: POST /api/users/withdrawal (User requests a withdrawal)
 router.post("/withdrawal", userController_1.requestUserWithdrawal);
 // Route: POST /api/users/capital-access (User requests capital access)

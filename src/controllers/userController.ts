@@ -900,6 +900,82 @@ export async function allocateUserDeposit(req: Request, res: Response) {
   }
 }
 
+// Controller: Fund user wallet directly without a plan
+export async function fundUserWallet(req: Request, res: Response) {
+  try {
+    const { username, walletSymbol, amount } = req.body;
+
+    if (!username || !walletSymbol || !amount) {
+      return res.status(400).json({ error: "Missing required parameters." });
+    }
+
+    const usernameVal = String(username);
+    const amountVal = parseFloat(amount);
+
+    if (isNaN(amountVal) || amountVal <= 0) {
+      return res.status(400).json({ error: "Invalid funding amount." });
+    }
+
+    const wallet = await Wallet.findOne({
+      username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
+      currencySymbol: walletSymbol,
+    });
+
+    if (!wallet) {
+      return res.status(404).json({ error: `Wallet for currency ${walletSymbol} not found.` });
+    }
+
+    const transaction = await Transaction.create({
+      currencyId: wallet.currencyId,
+      currencyLogo: wallet.currencyLogo,
+      currencyName: wallet.currencyName,
+      currencySymbol: wallet.currencySymbol,
+      walletId: wallet._id,
+      username: usernameVal,
+      amount: amountVal,
+      transactionType: "funding",
+      method: "direct",
+      status: "pending",
+    });
+
+    try {
+      await sendTemplatedNotification({
+        username: usernameVal,
+        templateName: "deposit_received",
+        variables: {
+          username: usernameVal,
+          amount: amountVal,
+          currency: walletSymbol,
+        },
+        notifyAdmin: true,
+        fallbackTitle: "Funding Request Received",
+        fallbackContent: "Your funding request of ${{amount}} worth of {{currency}} is processing and you will be notified upon approval",
+      });
+    } catch (notificationErr) {
+      console.error("✗ Error dispatching funding_received notification:", notificationErr);
+    }
+
+    sendTemplatedEmail({
+      username: usernameVal,
+      templateName: "deposit_received",
+      variables: { amount: amountVal, currency: walletSymbol },
+      fallbackSubject: "Funding Request Received & Processing",
+      fallbackGreeting: `Hi ${usernameVal},`,
+      fallbackContent: `Your funding request of <strong>$${amountVal}</strong> worth of <strong>${walletSymbol}</strong> is processing and you will be notified upon approval.`,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: "Funding request submitted successfully!",
+      wallet,
+      transaction,
+    });
+  } catch (error: any) {
+    console.error("✗ Error in fundUserWallet controller:", error);
+    return res.status(500).json({ error: "Internal server error funding user wallet." });
+  }
+}
+
 // Controller: Retrieve all transactions associated with a specific investor username
 export async function getUserTransactions(req: Request, res: Response) {
   try {
@@ -1196,6 +1272,61 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
       if (wallet) {
         wallet.balance = (wallet.balance || 0) + transaction.amount;
         await wallet.save();
+      }
+    } else if (transaction.transactionType === "funding" && status === "completed") {
+      const wallet = await Wallet.findById(transaction.walletId);
+      if (wallet) {
+        wallet.balance = (wallet.balance || 0) + transaction.amount;
+        await wallet.save();
+      }
+      if (transaction.currencyId) {
+        await Currency.findByIdAndUpdate(
+          transaction.currencyId,
+          { $inc: { balance: transaction.amount } }
+        );
+      }
+      
+      try {
+        await sendTemplatedNotification({
+          username: transaction.username,
+          templateName: "deposit_approval",
+          variables: {
+            username: transaction.username,
+            amount: transaction.amount,
+            currency: transaction.currencySymbol,
+          },
+          notifyAdmin: true,
+          fallbackTitle: "Funding Approved",
+          fallbackContent: "Your funding of ${{amount}} worth of {{currency}} is processed and approved.",
+        });
+      } catch (err) {
+        console.error("✗ Failed to dispatch funding_approval notification:", err);
+      }
+
+      sendTemplatedEmail({
+        username: transaction.username,
+        templateName: "deposit_approval",
+        variables: { amount: transaction.amount, currency: transaction.currencySymbol },
+        fallbackSubject: "Funding Approved",
+        fallbackGreeting: `Hi ${transaction.username},`,
+        fallbackContent: `Your funding of <strong>$${transaction.amount}</strong> worth of <strong>${transaction.currencySymbol}</strong> is processed and approved.`,
+      });
+    } else if (transaction.transactionType === "funding" && status === "rejected") {
+      try {
+        await sendTemplatedNotification({
+          username: transaction.username,
+          templateName: "deposit_rejected",
+          variables: {
+            username: transaction.username,
+            amount: transaction.amount,
+            currency: transaction.currencySymbol,
+          },
+          notifyAdmin: true,
+          fallbackTitle: "Funding Rejected",
+          fallbackContent: "Hello {{username}}, your funding request of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
+        });
+      } catch (err) {
+        console.error("✗ Failed to dispatch funding_rejected notification:", err);
       }
     }
 
