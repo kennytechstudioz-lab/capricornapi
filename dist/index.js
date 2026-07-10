@@ -25,7 +25,6 @@ const blogRoutes_1 = __importDefault(require("./routes/blogRoutes"));
 const termRoutes_1 = __importDefault(require("./routes/termRoutes"));
 const contactRoutes_1 = __importDefault(require("./routes/contactRoutes"));
 const scheduler_1 = require("./utils/scheduler");
-const seedData_1 = require("./utils/seedData");
 // Load configuration variables
 dotenv_1.default.config();
 const app = (0, express_1.default)();
@@ -99,11 +98,4 @@ server.listen(PORT, () => {
     console.log(`========================================`);
     // Start the Active Deposit scheduler after database and server are live
     (0, scheduler_1.startActiveDepositScheduler)();
-    // Seed default notification templates and terms/policy content
-    (0, seedData_1.seedNotificationTemplates)().catch((e) => console.error("[Seed] Notification templates error:", e));
-    (0, seedData_1.seedTermsAndPolicy)().catch((e) => console.error("[Seed] Terms & Policy error:", e));
-    (0, seedData_1.seedEmailTemplates)().catch((e) => console.error("[Seed] Email templates error:", e));
-    (0, seedData_1.seedProjectBlogs)().catch((e) => console.error("[Seed] Project blogs error:", e));
-    (0, seedData_1.seedReviews)().catch((e) => console.error("[Seed] Reviews error:", e));
-    (0, seedData_1.seedExecutiveStaff)().catch((e) => console.error("[Seed] Executive staff error:", e));
 });
