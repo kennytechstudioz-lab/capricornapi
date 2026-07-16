@@ -1,61 +1,109 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.sendDirectEmail = sendDirectEmail;
 exports.sendTemplatedEmail = sendTemplatedEmail;
-const resend_1 = require("resend");
+const nodemailer_1 = __importDefault(require("nodemailer"));
 const EmailTemplate_1 = require("../models/EmailTemplate");
 const User_1 = require("../models/User");
+const Setting_1 = __importDefault(require("../models/Setting"));
 const emailLayout_1 = require("./emailLayout");
 const notifications_1 = require("./notifications");
+/**
+ * Creates a Nodemailer transporter using Hostinger SMTP credentials from .env
+ */
+function createTransporter() {
+    return nodemailer_1.default.createTransport({
+        host: process.env.EMAIL_HOST || "smtp.hostinger.com",
+        port: Number(process.env.EMAIL_PORT) || 465,
+        secure: true, // Port 465 always uses SSL
+        auth: {
+            user: process.env.EMAIL_FROM_ADDRESS,
+            pass: process.env.EMAIL_PASSWORD,
+        },
+    });
+}
+/**
+ * Fetches the company name from the admin Settings document.
+ * Falls back to EMAIL_FROM_NAME env var or "Capricorn Energy".
+ */
+async function getCompanyName() {
+    try {
+        const setting = await Setting_1.default.findOne({});
+        if (setting?.companyName)
+            return setting.companyName;
+    }
+    catch (_) { }
+    return process.env.EMAIL_FROM_NAME || "Capricorn Energy";
+}
+/**
+ * Returns true if email sending should be suppressed.
+ * Suppressed when:
+ *   - EMAIL_PASSWORD is not set (no credentials), OR
+ *   - SUPPRESS_EMAIL=true is explicitly set in .env
+ */
+function isEmailSuppressed(label) {
+    if (!process.env.EMAIL_PASSWORD) {
+        console.warn(`[Email] EMAIL_PASSWORD not set — skipping "${label}"`);
+        return true;
+    }
+    if (process.env.SUPPRESS_EMAIL === "true") {
+        console.log(`[Email:SUPPRESSED] "${label}" (SUPPRESS_EMAIL=true)`);
+        return true;
+    }
+    return false;
+}
 /**
  * Sends an email directly to any address without requiring a registered user lookup.
  * Used for contact form inquiries and other outbound emails to arbitrary recipients.
  */
 async function sendDirectEmail(params) {
-    if (!process.env.RESEND_API_KEY) {
-        console.error("[Email] RESEND_API_KEY not configured — skipping direct email.");
-        return;
-    }
     const { to, subject, greeting, content } = params;
-    const fromName = process.env.EMAIL_FROM_NAME || "Capricorn Energy";
-    const fromAddress = process.env.EMAIL_FROM_ADDRESS || "noreply@capricornenergyltd.online";
-    const html = (0, emailLayout_1.buildEmailHtml)({ title: subject, greeting, content });
-    const resend = getResend();
-    const { error } = await resend.emails.send({
-        from: `${fromName} <${fromAddress}>`,
-        to,
-        subject,
-        html,
+    if (isEmailSuppressed(`direct → ${to}`))
+        return;
+    const companyName = await getCompanyName();
+    const fromName = process.env.EMAIL_FROM_NAME || companyName;
+    const fromAddress = process.env.EMAIL_FROM_ADDRESS || "";
+    // Replace {{companyName}} in subject, greeting, and content
+    const vars = { companyName };
+    const compiledSubject = (0, notifications_1.compileTemplate)(subject, vars);
+    const compiledGreeting = (0, notifications_1.compileTemplate)(greeting, vars);
+    const compiledContent = (0, notifications_1.compileTemplate)(content, vars);
+    const html = (0, emailLayout_1.buildEmailHtml)({
+        title: compiledSubject,
+        greeting: compiledGreeting,
+        content: compiledContent,
+        companyName,
     });
-    if (error) {
-        console.error(`[Email] Resend rejected direct email to "${to}":`, error);
-        throw new Error(error.message);
+    try {
+        const transporter = createTransporter();
+        await transporter.sendMail({
+            from: `"${fromName}" <${fromAddress}>`,
+            to,
+            subject: compiledSubject,
+            html,
+        });
+        console.log(`[Email] ✓ Direct email sent to ${to} — subject: "${compiledSubject}"`);
     }
-    console.log(`[Email] Direct email sent to ${to} — subject: "${subject}"`);
-}
-let _resend = null;
-function getResend() {
-    if (_resend)
-        return _resend;
-    const apiKey = process.env.RESEND_API_KEY;
-    if (!apiKey)
-        throw new Error("RESEND_API_KEY is not set");
-    _resend = new resend_1.Resend(apiKey);
-    return _resend;
+    catch (err) {
+        console.error(`[Email] ✗ Failed to send direct email to "${to}":`, err.message);
+        throw new Error(err.message);
+    }
 }
 async function sendTemplatedEmail(params) {
     const { username, templateName, variables, fallbackSubject, fallbackGreeting, fallbackContent } = params;
-    if (!process.env.RESEND_API_KEY) {
-        console.error(`[Email] RESEND_API_KEY not configured — skipping "${templateName}" for "${username}"`);
+    if (isEmailSuppressed(`${templateName} → ${username}`))
         return;
-    }
     try {
         const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + username.trim() + "$", "i") } });
         if (!user?.email) {
             console.warn(`[Email] No email found for username "${username}" — skipping ${templateName}`);
             return;
         }
-        const allVars = { username, ...variables };
+        const companyName = await getCompanyName();
+        const allVars = { username, companyName, ...variables };
         let subject = (0, notifications_1.compileTemplate)(fallbackSubject, allVars);
         let greeting = (0, notifications_1.compileTemplate)(fallbackGreeting, allVars);
         let content = (0, notifications_1.compileTemplate)(fallbackContent, allVars);
@@ -67,23 +115,19 @@ async function sendTemplatedEmail(params) {
             content = (0, notifications_1.compileTemplate)(template.content, allVars);
             bannerUrl = template.banner || undefined;
         }
-        const html = (0, emailLayout_1.buildEmailHtml)({ title: subject, greeting, content, bannerUrl });
-        const fromName = process.env.EMAIL_FROM_NAME || "Capricorn Energy";
-        const fromAddress = process.env.EMAIL_FROM_ADDRESS || "noreply@capricornenergyltd.online";
-        const resend = getResend();
-        const { error } = await resend.emails.send({
-            from: `${fromName} <${fromAddress}>`,
+        const html = (0, emailLayout_1.buildEmailHtml)({ title: subject, greeting, content, bannerUrl, companyName });
+        const fromName = process.env.EMAIL_FROM_NAME || companyName;
+        const fromAddress = process.env.EMAIL_FROM_ADDRESS || "";
+        const transporter = createTransporter();
+        await transporter.sendMail({
+            from: `"${fromName}" <${fromAddress}>`,
             to: user.email,
             subject,
             html,
         });
-        if (error) {
-            console.error(`[Email] Resend rejected "${templateName}" for "${username}":`, error);
-            return;
-        }
-        console.log(`[Email] "${templateName}" sent to ${user.email}`);
+        console.log(`[Email] ✓ "${templateName}" sent to ${user.email}`);
     }
     catch (err) {
-        console.error(`[Email] Failed to send "${templateName}" for user "${username}":`, err);
+        console.error(`[Email] ✗ Failed to send "${templateName}" for user "${username}":`, err);
     }
 }
