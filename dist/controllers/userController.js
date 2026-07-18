@@ -1046,7 +1046,7 @@ async function toggleUser2FA(req, res) {
         if (!user) {
             return res.status(404).json({ success: false, error: "User not found." });
         }
-        user.twoFactorEnabled = !!enabled;
+        user.twoFactorEnabled = enabled === true || enabled === "true";
         await user.save();
         return res.status(200).json({
             success: true,
