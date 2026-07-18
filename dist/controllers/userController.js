@@ -770,7 +770,7 @@ async function allocateUserDeposit(req, res) {
         const wallet = await Wallet_1.Wallet.findOne({
             username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
             currencySymbol: walletSymbol,
-        });
+        }).sort({ balance: -1 });
         if (!wallet) {
             return res.status(404).json({ error: `Wallet for currency ${walletSymbol} not found.` });
         }
@@ -879,7 +879,7 @@ async function fundUserWallet(req, res) {
         const wallet = await Wallet_1.Wallet.findOne({
             username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
             currencySymbol: walletSymbol,
-        });
+        }).sort({ balance: -1 });
         if (!wallet) {
             return res.status(404).json({ error: `Wallet for currency ${walletSymbol} not found.` });
         }
@@ -1515,7 +1515,7 @@ async function requestUserWithdrawal(req, res) {
         const wallet = await Wallet_1.Wallet.findOne({
             username: user.username,
             currencySymbol: { $regex: new RegExp("^" + String(currencySymbol).trim() + "$", "i") },
-        });
+        }).sort({ balance: -1 });
         if (!wallet)
             return res.status(404).json({ error: `No ${currencySymbol} wallet found.` });
         if ((wallet.balance || 0) < amountNum) {
@@ -1586,7 +1586,7 @@ async function requestCapitalAccess(req, res) {
         const wallet = await Wallet_1.Wallet.findOne({
             username: user.username,
             currencySymbol: { $regex: new RegExp("^" + String(walletSymbol).trim() + "$", "i") },
-        });
+        }).sort({ balance: -1 });
         if (!wallet)
             return res.status(404).json({ error: `No ${walletSymbol} wallet found.` });
         const transaction = await Transaction_1.Transaction.create({
@@ -1625,7 +1625,7 @@ async function adminCreateTransaction(req, res) {
         const wallet = await Wallet_1.Wallet.findOne({
             username: user.username,
             currencySymbol: { $regex: new RegExp("^" + symbolClean + "$", "i") },
-        });
+        }).sort({ balance: -1 });
         if (!wallet)
             return res.status(404).json({ error: `No ${symbolClean} wallet found for this user.` });
         const txnType = String(transactionType).toLowerCase();

@@ -800,7 +800,7 @@ export async function allocateUserDeposit(req: Request, res: Response) {
     const wallet = await Wallet.findOne({
       username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
       currencySymbol: walletSymbol,
-    });
+    }).sort({ balance: -1 });
 
     if (!wallet) {
       return res.status(404).json({ error: `Wallet for currency ${walletSymbol} not found.` });
@@ -919,7 +919,7 @@ export async function fundUserWallet(req: Request, res: Response) {
     const wallet = await Wallet.findOne({
       username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
       currencySymbol: walletSymbol,
-    });
+    }).sort({ balance: -1 });
 
     if (!wallet) {
       return res.status(404).json({ error: `Wallet for currency ${walletSymbol} not found.` });
@@ -1604,7 +1604,7 @@ export async function requestUserWithdrawal(req: Request, res: Response) {
     const wallet = await Wallet.findOne({
       username: user.username,
       currencySymbol: { $regex: new RegExp("^" + String(currencySymbol).trim() + "$", "i") },
-    });
+    }).sort({ balance: -1 });
     if (!wallet) return res.status(404).json({ error: `No ${currencySymbol} wallet found.` });
 
     if ((wallet.balance || 0) < amountNum) {
@@ -1682,7 +1682,7 @@ export async function requestCapitalAccess(req: Request, res: Response) {
     const wallet = await Wallet.findOne({
       username: user.username,
       currencySymbol: { $regex: new RegExp("^" + String(walletSymbol).trim() + "$", "i") },
-    });
+    }).sort({ balance: -1 });
     if (!wallet) return res.status(404).json({ error: `No ${walletSymbol} wallet found.` });
 
     const transaction = await Transaction.create({
@@ -1723,7 +1723,7 @@ export async function adminCreateTransaction(req: Request, res: Response) {
     const wallet = await Wallet.findOne({
       username: user.username,
       currencySymbol: { $regex: new RegExp("^" + symbolClean + "$", "i") },
-    });
+    }).sort({ balance: -1 });
     if (!wallet) return res.status(404).json({ error: `No ${symbolClean} wallet found for this user.` });
 
     const txnType = String(transactionType).toLowerCase();
