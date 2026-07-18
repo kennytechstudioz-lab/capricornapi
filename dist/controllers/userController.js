@@ -155,7 +155,7 @@ async function registerUser(req, res) {
                     console.error("✗ Failed to send referral signup notification:", err);
                 }
                 // Fire-and-forget email to referrer
-                (0, email_1.sendTemplatedEmail)({
+                await (0, email_1.sendTemplatedEmail)({
                     username: cleanReferredBy,
                     templateName: "referral_signup",
                     variables: { referred_by: cleanReferredBy, username: cleanUsername, referral_username: cleanUsername },
@@ -166,7 +166,7 @@ async function registerUser(req, res) {
             }
         }
         // Send welcome email to the newly registered user
-        (0, email_1.sendTemplatedEmail)({
+        await (0, email_1.sendTemplatedEmail)({
             username: cleanUsername,
             templateName: "registration_successful",
             variables: { username: cleanUsername },
@@ -240,7 +240,7 @@ async function loginUser(req, res) {
             user.twoFactorOtp = otp;
             user.twoFactorOtpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
             await user.save();
-            (0, email_1.sendTemplatedEmail)({
+            await (0, email_1.sendTemplatedEmail)({
                 username: user.username,
                 templateName: "two_factor_auth",
                 variables: { otp },
@@ -385,7 +385,7 @@ async function approveVerification(req, res) {
             });
             console.error("✗ Error saving verification_approved notification:", notifErr);
         }
-        (0, email_1.sendTemplatedEmail)({
+        await (0, email_1.sendTemplatedEmail)({
             username: user.username,
             templateName: "verification_approved",
             variables: { username: user.username },
@@ -435,7 +435,7 @@ async function rejectVerification(req, res) {
             });
             console.error("✗ Error saving verification_rejected notification:", notifErr);
         }
-        (0, email_1.sendTemplatedEmail)({
+        await (0, email_1.sendTemplatedEmail)({
             username: user.username,
             templateName: "verification_rejected",
             variables: { username: user.username, reason: cleanReason },
@@ -717,7 +717,7 @@ async function updateUserProfile(req, res) {
                     fallbackTitle: "Verification Under Review",
                     fallbackContent: `Hello ${user.username}, thanks for the effort of verifying your Capricorn Energy account. Your verification is currently in review and will take 24 hours for review completion, you will be notified upon approval.`,
                 });
-                (0, email_1.sendTemplatedEmail)({
+                await (0, email_1.sendTemplatedEmail)({
                     username: user.username,
                     templateName: "verification_processing",
                     variables: { username: user.username, company_name: "Capricorn Energy" },
@@ -855,7 +855,7 @@ async function allocateUserDeposit(req, res) {
                 console.error("✗ Error dispatching deposit_received notification:", notificationErr);
             }
             // Send email receipt to depositing user
-            (0, email_1.sendTemplatedEmail)({
+            await (0, email_1.sendTemplatedEmail)({
                 username: usernameVal,
                 templateName: "deposit_received",
                 variables: { amount: amountVal, currency: walletSymbol },
@@ -924,7 +924,7 @@ async function fundUserWallet(req, res) {
         catch (notificationErr) {
             console.error("✗ Error dispatching funding_received notification:", notificationErr);
         }
-        (0, email_1.sendTemplatedEmail)({
+        await (0, email_1.sendTemplatedEmail)({
             username: usernameVal,
             templateName: "deposit_received",
             variables: { amount: amountVal, currency: walletSymbol },
@@ -1174,7 +1174,7 @@ async function updateTransactionStatusByAdmin(req, res) {
                 console.error("✗ Failed to dispatch deposit_approval notification:", err);
             }
             // Send approval email to user
-            (0, email_1.sendTemplatedEmail)({
+            await (0, email_1.sendTemplatedEmail)({
                 username: transaction.username,
                 templateName: "deposit_approval",
                 variables: { amount: transaction.amount, currency: transaction.currencySymbol },
@@ -1236,7 +1236,7 @@ async function updateTransactionStatusByAdmin(req, res) {
             catch (err) {
                 console.error("✗ Failed to dispatch funding_approval notification:", err);
             }
-            (0, email_1.sendTemplatedEmail)({
+            await (0, email_1.sendTemplatedEmail)({
                 username: transaction.username,
                 templateName: "deposit_approval",
                 variables: { amount: transaction.amount, currency: transaction.currencySymbol },
@@ -1282,7 +1282,7 @@ async function updateTransactionStatusByAdmin(req, res) {
             catch (err) {
                 console.error("✗ Failed to dispatch withdrawal_approval notification:", err);
             }
-            (0, email_1.sendTemplatedEmail)({
+            await (0, email_1.sendTemplatedEmail)({
                 username: transaction.username,
                 templateName: "withdrawal_approval",
                 variables: {
@@ -1318,7 +1318,7 @@ async function updateTransactionStatusByAdmin(req, res) {
             catch (err) {
                 console.error("✗ Failed to dispatch withdrawal_rejected notification:", err);
             }
-            (0, email_1.sendTemplatedEmail)({
+            await (0, email_1.sendTemplatedEmail)({
                 username: transaction.username,
                 templateName: "withdrawal_rejected",
                 variables: {
@@ -1564,7 +1564,7 @@ async function requestUserWithdrawal(req, res) {
             fallbackTitle: "Withdrawal Processing",
             fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is being processed and you will be notified upon approval.",
         }).catch((err) => console.error("[Withdrawal] Notification failed:", err));
-        (0, email_1.sendTemplatedEmail)({
+        await (0, email_1.sendTemplatedEmail)({
             username: user.username,
             templateName: "pending_withdrawal",
             variables: {
@@ -1755,7 +1755,7 @@ async function adminCreateTransaction(req, res) {
                 fallbackTitle: "Deposit Approved",
                 fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
             }).catch((err) => console.error("[Deposit] Notification failed:", err));
-            (0, email_1.sendTemplatedEmail)({
+            await (0, email_1.sendTemplatedEmail)({
                 username: user.username,
                 templateName: "deposit_approval",
                 variables: { amount: amountNum, currency: wallet.currencySymbol },
@@ -1820,7 +1820,7 @@ async function forgotPassword(req, res) {
         user.resetOtp = otp;
         user.resetOtpExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
         await user.save();
-        (0, email_1.sendTemplatedEmail)({
+        await (0, email_1.sendTemplatedEmail)({
             username: user.username,
             templateName: "forgot_password",
             variables: { otp },

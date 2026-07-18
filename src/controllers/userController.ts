@@ -128,7 +128,7 @@ export async function registerUser(req: Request, res: Response) {
         }
 
         // Fire-and-forget email to referrer
-        sendTemplatedEmail({
+        await sendTemplatedEmail({
           username: cleanReferredBy,
           templateName: "referral_signup",
           variables: { referred_by: cleanReferredBy, username: cleanUsername, referral_username: cleanUsername },
@@ -140,7 +140,7 @@ export async function registerUser(req: Request, res: Response) {
     }
 
     // Send welcome email to the newly registered user
-    sendTemplatedEmail({
+    await sendTemplatedEmail({
       username: cleanUsername,
       templateName: "registration_successful",
       variables: { username: cleanUsername },
@@ -222,7 +222,7 @@ export async function loginUser(req: Request, res: Response) {
       (user as any).twoFactorOtpExpiry = new Date(Date.now() + 10 * 60 * 1000); // 10 minutes
       await user.save();
 
-      sendTemplatedEmail({
+      await sendTemplatedEmail({
         username: user.username,
         templateName: "two_factor_auth",
         variables: { otp },
@@ -375,7 +375,7 @@ export async function approveVerification(req: Request, res: Response) {
       console.error("✗ Error saving verification_approved notification:", notifErr);
     }
 
-    sendTemplatedEmail({
+    await sendTemplatedEmail({
       username: user.username,
       templateName: "verification_approved",
       variables: { username: user.username },
@@ -426,7 +426,7 @@ export async function rejectVerification(req: Request, res: Response) {
       console.error("✗ Error saving verification_rejected notification:", notifErr);
     }
 
-    sendTemplatedEmail({
+    await sendTemplatedEmail({
       username: user.username,
       templateName: "verification_rejected",
       variables: { username: user.username, reason: cleanReason },
@@ -744,7 +744,7 @@ export async function updateUserProfile(req: Request, res: Response) {
           fallbackContent: `Hello ${user.username}, thanks for the effort of verifying your Capricorn Energy account. Your verification is currently in review and will take 24 hours for review completion, you will be notified upon approval.`,
         });
 
-        sendTemplatedEmail({
+        await sendTemplatedEmail({
           username: user.username,
           templateName: "verification_processing",
           variables: { username: user.username, company_name: "Capricorn Energy" },
@@ -892,7 +892,7 @@ export async function allocateUserDeposit(req: Request, res: Response) {
       }
 
       // Send email receipt to depositing user
-      sendTemplatedEmail({
+      await sendTemplatedEmail({
         username: usernameVal,
         templateName: "deposit_received",
         variables: { amount: amountVal, currency: walletSymbol },
@@ -969,7 +969,7 @@ export async function fundUserWallet(req: Request, res: Response) {
       console.error("✗ Error dispatching funding_received notification:", notificationErr);
     }
 
-    sendTemplatedEmail({
+    await sendTemplatedEmail({
       username: usernameVal,
       templateName: "deposit_received",
       variables: { amount: amountVal, currency: walletSymbol },
@@ -1255,7 +1255,7 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
       }
 
       // Send approval email to user
-      sendTemplatedEmail({
+      await sendTemplatedEmail({
         username: transaction.username,
         templateName: "deposit_approval",
         variables: { amount: transaction.amount, currency: transaction.currencySymbol },
@@ -1317,7 +1317,7 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         console.error("✗ Failed to dispatch funding_approval notification:", err);
       }
 
-      sendTemplatedEmail({
+      await sendTemplatedEmail({
         username: transaction.username,
         templateName: "deposit_approval",
         variables: { amount: transaction.amount, currency: transaction.currencySymbol },
@@ -1360,7 +1360,7 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         console.error("✗ Failed to dispatch withdrawal_approval notification:", err);
       }
 
-      sendTemplatedEmail({
+      await sendTemplatedEmail({
         username: transaction.username,
         templateName: "withdrawal_approval",
         variables: {
@@ -1396,7 +1396,7 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         console.error("✗ Failed to dispatch withdrawal_rejected notification:", err);
       }
 
-      sendTemplatedEmail({
+      await sendTemplatedEmail({
         username: transaction.username,
         templateName: "withdrawal_rejected",
         variables: {
@@ -1556,8 +1556,7 @@ export async function adminBulkEmail(req: Request, res: Response) {
       return res.status(400).json({ error: "usernames (array) and templateName are required." });
     }
     const results = await Promise.allSettled(
-      usernames.map((username: string) =>
-        sendTemplatedEmail({
+      usernames.map((username: string) => sendTemplatedEmail({
           username: String(username).toLowerCase().trim(),
           templateName: String(templateName),
           variables: {},
@@ -1659,7 +1658,7 @@ export async function requestUserWithdrawal(req: Request, res: Response) {
       fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is being processed and you will be notified upon approval.",
     }).catch((err) => console.error("[Withdrawal] Notification failed:", err));
 
-    sendTemplatedEmail({
+    await sendTemplatedEmail({
       username: user.username,
       templateName: "pending_withdrawal",
       variables: {
@@ -1868,7 +1867,7 @@ export async function adminCreateTransaction(req: Request, res: Response) {
         fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
       }).catch((err) => console.error("[Deposit] Notification failed:", err));
 
-      sendTemplatedEmail({
+      await sendTemplatedEmail({
         username: user.username,
         templateName: "deposit_approval",
         variables: { amount: amountNum, currency: wallet.currencySymbol },
@@ -1939,7 +1938,7 @@ export async function forgotPassword(req: Request, res: Response) {
     (user as any).resetOtpExpiry = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
     await user.save();
 
-    sendTemplatedEmail({
+    await sendTemplatedEmail({
       username: user.username,
       templateName: "forgot_password",
       variables: { otp },
