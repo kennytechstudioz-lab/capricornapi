@@ -1116,7 +1116,7 @@ export async function toggleUser2FA(req: Request, res: Response) {
     
     return res.status(200).json({
       success: true,
-      message: enabled ? "2FA enabled successfully!" : "2FA disabled successfully!",
+      message: user.twoFactorEnabled ? "2FA enabled successfully!" : "2FA disabled successfully!",
       twoFactorEnabled: user.twoFactorEnabled
     });
   } catch (error: any) {
