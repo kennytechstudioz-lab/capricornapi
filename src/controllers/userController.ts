@@ -1328,6 +1328,71 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
       } catch (err) {
         console.error("✗ Failed to dispatch funding_rejected notification:", err);
       }
+    } else if (transaction.transactionType === "withdrawal" && status === "completed") {
+      try {
+        await sendTemplatedNotification({
+          username: transaction.username,
+          templateName: "withdrawal_approved",
+          variables: {
+            username: transaction.username,
+            amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            currency: transaction.currencySymbol,
+          },
+          notifyAdmin: true,
+          fallbackTitle: "Withdrawal Approved",
+          fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is processed and approved.",
+        });
+      } catch (err) {
+        console.error("✗ Failed to dispatch withdrawal_approval notification:", err);
+      }
+
+      sendTemplatedEmail({
+        username: transaction.username,
+        templateName: "withdrawal_approval",
+        variables: {
+          amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          currency: transaction.currencySymbol,
+        },
+        fallbackSubject: "Withdrawal Approved",
+        fallbackGreeting: `Hi ${transaction.username},`,
+        fallbackContent: `Your withdrawal request of <strong>$${transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> worth of <strong>${transaction.currencySymbol}</strong> is processed and approved.`,
+      });
+    } else if (transaction.transactionType === "withdrawal" && status === "rejected") {
+      const wallet = await Wallet.findById(transaction.walletId);
+      if (wallet) {
+        wallet.balance = (wallet.balance || 0) + transaction.amount;
+        wallet.totalWithdrawal = Math.max(0, (wallet.totalWithdrawal || 0) - transaction.amount);
+        await wallet.save();
+      }
+
+      try {
+        await sendTemplatedNotification({
+          username: transaction.username,
+          templateName: "withdrawal_rejected",
+          variables: {
+            username: transaction.username,
+            amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+            currency: transaction.currencySymbol,
+          },
+          notifyAdmin: true,
+          fallbackTitle: "Withdrawal Rejected",
+          fallbackContent: "Hello {{username}}, your withdrawal request of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
+        });
+      } catch (err) {
+        console.error("✗ Failed to dispatch withdrawal_rejected notification:", err);
+      }
+
+      sendTemplatedEmail({
+        username: transaction.username,
+        templateName: "withdrawal_rejected",
+        variables: {
+          amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          currency: transaction.currencySymbol,
+        },
+        fallbackSubject: "Withdrawal Rejected",
+        fallbackGreeting: `Hi ${transaction.username},`,
+        fallbackContent: `Your withdrawal request of <strong>$${transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> worth of <strong>${transaction.currencySymbol}</strong> was rejected. Please contact support.`,
+      });
     }
 
     return res.status(200).json({
@@ -1579,6 +1644,18 @@ export async function requestUserWithdrawal(req: Request, res: Response) {
       fallbackTitle: "Withdrawal Processing",
       fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is being processed and you will be notified upon approval.",
     }).catch((err) => console.error("[Withdrawal] Notification failed:", err));
+
+    sendTemplatedEmail({
+      username: user.username,
+      templateName: "pending_withdrawal",
+      variables: {
+        amount: amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+        currency: wallet.currencyName,
+      },
+      fallbackSubject: "Withdrawal Processing",
+      fallbackGreeting: `Hi ${user.username},`,
+      fallbackContent: `Your withdrawal request of <strong>$${amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> worth of <strong>${wallet.currencyName}</strong> is processing and you will be notified upon approval.`,
+    }).catch((err) => console.error("[Withdrawal] Email sending failed:", err));
 
     return res.status(201).json({ success: true, message: "Withdrawal request submitted.", transaction });
   } catch (error: any) {
