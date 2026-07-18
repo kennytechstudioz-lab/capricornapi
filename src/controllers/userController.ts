@@ -666,6 +666,7 @@ export async function getUserProfile(req: Request, res: Response) {
         isVerified: user.isVerified || false,
         idType: (user as any).idType || "",
         idImage: (user as any).idImage || "",
+        twoFactorEnabled: user.twoFactorEnabled || false,
       },
     });
   } catch (error: any) {
@@ -780,6 +781,7 @@ export async function updateUserProfile(req: Request, res: Response) {
         isVerified: user.isVerified || false,
         idType: (user as any).idType || "",
         idImage: (user as any).idImage || "",
+        twoFactorEnabled: user.twoFactorEnabled || false,
       },
     });
   } catch (error: any) {
