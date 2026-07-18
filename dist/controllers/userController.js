@@ -465,7 +465,7 @@ async function deleteUser(req, res) {
             Transaction_1.Transaction.deleteMany({ username }),
             ActiveDeposit_1.ActiveDeposit.deleteMany({ username }),
             Earning_1.Earning.deleteMany({ username }),
-            Referral_1.Referral.deleteMany({ username }),
+            Referral_1.Referral.deleteMany({ $or: [{ username }, { referredBy: username }] }),
             Wallet_1.Wallet.deleteMany({ username }),
             Notification_1.Notification.deleteMany({ username }),
             Review_1.Review.deleteMany({ userId: user._id }),
@@ -492,10 +492,22 @@ async function bulkUpdateUsers(req, res) {
             });
         }
         if (action === "delete") {
-            await User_1.User.deleteMany({ _id: { $in: ids } });
+            const usersToDelete = await User_1.User.find({ _id: { $in: ids } });
+            const usernames = usersToDelete.map((u) => u.username);
+            const userIds = usersToDelete.map((u) => u._id);
+            await Promise.all([
+                User_1.User.deleteMany({ _id: { $in: ids } }),
+                Transaction_1.Transaction.deleteMany({ username: { $in: usernames } }),
+                ActiveDeposit_1.ActiveDeposit.deleteMany({ username: { $in: usernames } }),
+                Earning_1.Earning.deleteMany({ username: { $in: usernames } }),
+                Referral_1.Referral.deleteMany({ $or: [{ username: { $in: usernames } }, { referredBy: { $in: usernames } }] }),
+                Wallet_1.Wallet.deleteMany({ username: { $in: usernames } }),
+                Notification_1.Notification.deleteMany({ username: { $in: usernames } }),
+                Review_1.Review.deleteMany({ userId: { $in: userIds } }),
+            ]);
             return res.status(200).json({
                 success: true,
-                message: `Successfully deleted ${ids.length} user accounts.`,
+                message: `Successfully deleted ${ids.length} user accounts and all related details.`,
             });
         }
         const updates = {};

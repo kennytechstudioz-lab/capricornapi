@@ -458,7 +458,7 @@ export async function deleteUser(req: Request, res: Response) {
       Transaction.deleteMany({ username }),
       ActiveDeposit.deleteMany({ username }),
       Earning.deleteMany({ username }),
-      Referral.deleteMany({ username }),
+      Referral.deleteMany({ $or: [{ username }, { referredBy: username }] }),
       Wallet.deleteMany({ username }),
       Notification.deleteMany({ username }),
       Review.deleteMany({ userId: user._id }),
@@ -488,10 +488,24 @@ export async function bulkUpdateUsers(req: Request, res: Response) {
     }
 
     if (action === "delete") {
-      await User.deleteMany({ _id: { $in: ids } });
+      const usersToDelete = await User.find({ _id: { $in: ids } });
+      const usernames = usersToDelete.map((u) => u.username);
+      const userIds = usersToDelete.map((u) => u._id);
+
+      await Promise.all([
+        User.deleteMany({ _id: { $in: ids } }),
+        Transaction.deleteMany({ username: { $in: usernames } }),
+        ActiveDeposit.deleteMany({ username: { $in: usernames } }),
+        Earning.deleteMany({ username: { $in: usernames } }),
+        Referral.deleteMany({ $or: [{ username: { $in: usernames } }, { referredBy: { $in: usernames } }] }),
+        Wallet.deleteMany({ username: { $in: usernames } }),
+        Notification.deleteMany({ username: { $in: usernames } }),
+        Review.deleteMany({ userId: { $in: userIds } }),
+      ]);
+
       return res.status(200).json({
         success: true,
-        message: `Successfully deleted ${ids.length} user accounts.`,
+        message: `Successfully deleted ${ids.length} user accounts and all related details.`,
       });
     }
 
