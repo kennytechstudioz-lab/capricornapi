@@ -1753,7 +1753,18 @@ export async function adminCreateTransaction(req: Request, res: Response) {
     const isBonus = txnType === "bonus";
     const isDeposit = txnType === "deposit";
     const isWithdrawal = txnType === "withdrawal";
+    const isReduction = txnType === "reduction";
     const isFromBalance = txnMethod === "balance";
+
+    // Silent Reduction: verify, deduct, and return early
+    if (isReduction) {
+      if ((wallet.balance || 0) < amountNum) {
+        return res.status(400).json({ error: "Insufficient wallet balance for this reduction." });
+      }
+      wallet.balance = (wallet.balance || 0) - amountNum;
+      await wallet.save();
+      return res.status(200).json({ success: true, message: "Balance reduced successfully silently." });
+    }
 
     // Balance-funded deposit: verify sufficient funds up front
     if (isDeposit && isFromBalance) {
