@@ -286,6 +286,7 @@ export async function getAllUsers(req: Request, res: Response) {
         dateOfBirth: user.dateOfBirth || "",
         gender: user.gender || "",
         maritalStatus: user.maritalStatus || "",
+        phoneNumber: user.phoneNumber || "",
         country: user.country || "",
         occupation: user.occupation || "",
         idType: (user as any).idType || "",
@@ -660,6 +661,7 @@ export async function getUserProfile(req: Request, res: Response) {
         dateOfBirth: user.dateOfBirth || "",
         gender: user.gender || "",
         maritalStatus: user.maritalStatus || "",
+        phoneNumber: user.phoneNumber || "",
         country: user.country || "",
         occupation: user.occupation || "",
         isVerifying: (user as any).isVerifying || false,
@@ -686,6 +688,7 @@ export async function updateUserProfile(req: Request, res: Response) {
       dateOfBirth,
       gender,
       maritalStatus,
+      phoneNumber,
       country,
       occupation,
       idType,
@@ -717,13 +720,14 @@ export async function updateUserProfile(req: Request, res: Response) {
     if (dateOfBirth !== undefined) user.dateOfBirth = dateOfBirth;
     if (gender !== undefined) user.gender = gender;
     if (maritalStatus !== undefined) user.maritalStatus = maritalStatus;
+    if (phoneNumber !== undefined) user.phoneNumber = phoneNumber;
     if (country !== undefined) user.country = country;
     if (occupation !== undefined) user.occupation = occupation;
     if (idType !== undefined) (user as any).idType = idType;
     if (idImage !== undefined) (user as any).idImage = idImage;
 
     // Set isVerifying once all verification fields are submitted (admin approves to flip isVerified)
-    const allVerificationFieldsPresent = !!(firstName && lastName && dateOfBirth && gender && maritalStatus && country && occupation && idType && idImage);
+    const allVerificationFieldsPresent = !!(firstName && lastName && dateOfBirth && gender && maritalStatus && phoneNumber && country && occupation && idType && idImage);
     const wasAlreadyVerifyingOrVerified = (user as any).isVerifying || user.isVerified;
     if (allVerificationFieldsPresent && !wasAlreadyVerifyingOrVerified) {
       (user as any).isVerifying = true;
@@ -775,6 +779,7 @@ export async function updateUserProfile(req: Request, res: Response) {
         dateOfBirth: user.dateOfBirth || "",
         gender: user.gender || "",
         maritalStatus: user.maritalStatus || "",
+        phoneNumber: user.phoneNumber || "",
         country: user.country || "",
         occupation: user.occupation || "",
         isVerifying: (user as any).isVerifying || false,

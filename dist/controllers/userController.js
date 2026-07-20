@@ -301,6 +301,7 @@ async function getAllUsers(req, res) {
                 dateOfBirth: user.dateOfBirth || "",
                 gender: user.gender || "",
                 maritalStatus: user.maritalStatus || "",
+                phoneNumber: user.phoneNumber || "",
                 country: user.country || "",
                 occupation: user.occupation || "",
                 idType: user.idType || "",
@@ -643,6 +644,7 @@ async function getUserProfile(req, res) {
                 dateOfBirth: user.dateOfBirth || "",
                 gender: user.gender || "",
                 maritalStatus: user.maritalStatus || "",
+                phoneNumber: user.phoneNumber || "",
                 country: user.country || "",
                 occupation: user.occupation || "",
                 isVerifying: user.isVerifying || false,
@@ -661,7 +663,7 @@ async function getUserProfile(req, res) {
 // Controller: Update profile verification details or profile picture
 async function updateUserProfile(req, res) {
     try {
-        const { username, profilePicture, firstName, lastName, dateOfBirth, gender, maritalStatus, country, occupation, idType, idImage, } = req.body;
+        const { username, profilePicture, firstName, lastName, dateOfBirth, gender, maritalStatus, phoneNumber, country, occupation, idType, idImage, } = req.body;
         if (!username) {
             return res.status(400).json({ error: "Missing username parameter." });
         }
@@ -690,6 +692,8 @@ async function updateUserProfile(req, res) {
             user.gender = gender;
         if (maritalStatus !== undefined)
             user.maritalStatus = maritalStatus;
+        if (phoneNumber !== undefined)
+            user.phoneNumber = phoneNumber;
         if (country !== undefined)
             user.country = country;
         if (occupation !== undefined)
@@ -699,7 +703,7 @@ async function updateUserProfile(req, res) {
         if (idImage !== undefined)
             user.idImage = idImage;
         // Set isVerifying once all verification fields are submitted (admin approves to flip isVerified)
-        const allVerificationFieldsPresent = !!(firstName && lastName && dateOfBirth && gender && maritalStatus && country && occupation && idType && idImage);
+        const allVerificationFieldsPresent = !!(firstName && lastName && dateOfBirth && gender && maritalStatus && phoneNumber && country && occupation && idType && idImage);
         const wasAlreadyVerifyingOrVerified = user.isVerifying || user.isVerified;
         if (allVerificationFieldsPresent && !wasAlreadyVerifyingOrVerified) {
             user.isVerifying = true;
@@ -748,6 +752,7 @@ async function updateUserProfile(req, res) {
                 dateOfBirth: user.dateOfBirth || "",
                 gender: user.gender || "",
                 maritalStatus: user.maritalStatus || "",
+                phoneNumber: user.phoneNumber || "",
                 country: user.country || "",
                 occupation: user.occupation || "",
                 isVerifying: user.isVerifying || false,

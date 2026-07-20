@@ -69,6 +69,9 @@ const UserSchema = new mongoose_1.Schema({
     maritalStatus: {
         type: String,
     },
+    phoneNumber: {
+        type: String,
+    },
     country: {
         type: String,
     },

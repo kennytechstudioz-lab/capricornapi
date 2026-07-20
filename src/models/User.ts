@@ -68,6 +68,9 @@ const UserSchema = new Schema(
     maritalStatus: {
       type: String,
     },
+    phoneNumber: {
+      type: String,
+    },
     country: {
       type: String,
     },
