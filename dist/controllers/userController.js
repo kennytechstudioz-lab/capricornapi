@@ -1602,6 +1602,14 @@ async function requestCapitalAccess(req, res) {
         const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
         if (!user)
             return res.status(404).json({ error: "User not found." });
+        const existingRequest = await Transaction_1.Transaction.findOne({
+            username: user.username,
+            transactionType: "capital_access",
+            status: { $in: ["pending", "completed"] },
+        });
+        if (existingRequest) {
+            return res.status(400).json({ error: "You have already requested 300% Capital Access." });
+        }
         const wallet = await Wallet_1.Wallet.findOne({
             username: user.username,
             currencySymbol: { $regex: new RegExp("^" + String(walletSymbol).trim() + "$", "i") },
