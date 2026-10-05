@@ -22,15 +22,30 @@ import contactRoutes from "./routes/contactRoutes";
 import { startActiveDepositScheduler } from "./utils/scheduler";
 
 
+import path from "path";
+import fs from "fs";
+import { UPLOAD_DIR } from "./utils/localUpload";
+
 // Load configuration variables
 dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 5002;
 
+// Enable trust proxy for correct protocol resolution behind proxies
+app.set("trust proxy", true);
+
 // Set up server middlewares
 app.use(cors());
 app.use(express.json({ limit: "10mb" }));
+app.use(express.urlencoded({ extended: true, limit: "10mb" }));
+
+// Ensure upload directory exists and serve files statically
+if (!fs.existsSync(UPLOAD_DIR)) {
+  fs.mkdirSync(UPLOAD_DIR, { recursive: true });
+}
+app.use("/uploads", express.static(UPLOAD_DIR));
+app.use("/api/uploads", express.static(UPLOAD_DIR));
 
 // Premium request logger middleware (Registered first to capture all paths)
 app.use((req, res, next) => {

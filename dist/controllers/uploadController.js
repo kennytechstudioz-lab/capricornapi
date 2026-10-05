@@ -2,9 +2,9 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.uploadMedia = uploadMedia;
 exports.deleteMedia = deleteMedia;
-const s3Upload_1 = require("../utils/s3Upload");
+const localUpload_1 = require("../utils/localUpload");
 /**
- * Controller: Handles a single image file upload and stores it on AWS S3.
+ * Controller: Handles a single image file upload and stores it in the API upload folder.
  *
  * @param req Express Request object containing the multer-parsed file
  * @param res Express Response object
@@ -18,51 +18,62 @@ async function uploadMedia(req, res) {
                 error: "No image file provided in the upload request payload.",
             });
         }
-        const { buffer, originalname, mimetype } = req.file;
-        // 2. Dispatch file stream buffer to AWS S3 bucket
-        const publicUrl = await (0, s3Upload_1.uploadToS3)(buffer, originalname, mimetype);
-        // 3. Return secure S3 URL resource
+        let filename = req.file.filename;
+        // Fallback if file was uploaded via memory buffer rather than disk
+        if (!filename && req.file.buffer) {
+            filename = await (0, localUpload_1.saveBufferToUploads)(req.file.buffer, req.file.originalname);
+        }
+        // 2. Format public accessible URL
+        const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
+        const host = req.get("host") || `localhost:${process.env.PORT || 5002}`;
+        const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || `${protocol}://${host}`;
+        const publicUrl = `${baseUrl}/uploads/${filename}`;
+        // 3. Return public media URL resource
         return res.status(200).json({
             success: true,
             url: publicUrl,
-            fileName: originalname,
+            fileName: req.file.originalname,
+            filename: filename,
         });
     }
     catch (err) {
-        console.error("AWS S3 Upload Error: ", err);
+        console.error("API Upload Error: ", err);
         return res.status(500).json({
             success: false,
-            error: err.message || "An unexpected error occurred while uploading to Amazon S3.",
+            error: err.message || "An unexpected error occurred while saving to api upload folder.",
         });
     }
 }
 /**
- * Controller: Removes an image from AWS S3 bucket given its public URL link.
+ * Controller: Removes an image from the API upload folder given its URL or filename.
  *
- * @param req Express Request containing target S3 URL in body
+ * @param req Express Request containing target URL in body
  * @param res Express Response
  */
 async function deleteMedia(req, res) {
     try {
-        const { url } = req.body;
-        if (!url) {
+        const target = req.body?.url ||
+            req.body?.imageUrl ||
+            req.body?.fileName ||
+            req.body?.filename;
+        if (!target) {
             return res.status(400).json({
                 success: false,
-                error: "No image public URL provided in request payload.",
+                error: "No image URL or filename provided in request payload.",
             });
         }
-        // Trigger central S3 deletion
-        await (0, s3Upload_1.deleteFromS3)(url);
+        // Trigger local upload deletion
+        await (0, localUpload_1.deleteLocalFile)(target);
         return res.status(200).json({
             success: true,
-            message: "Media object deleted successfully from AWS S3 bucket.",
+            message: "Media object deleted successfully from upload folder.",
         });
     }
     catch (err) {
-        console.error("AWS S3 Deletion Error: ", err);
+        console.error("API Media Deletion Error: ", err);
         return res.status(500).json({
             success: false,
-            error: err.message || "An unexpected error occurred while deleting from Amazon S3.",
+            error: err.message || "An unexpected error occurred while deleting from upload folder.",
         });
     }
 }
