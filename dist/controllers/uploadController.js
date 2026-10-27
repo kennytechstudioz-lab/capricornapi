@@ -1,10 +1,15 @@
 "use strict";
+var __importDefault = (this && this.__importDefault) || function (mod) {
+    return (mod && mod.__esModule) ? mod : { "default": mod };
+};
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.uploadMedia = uploadMedia;
 exports.deleteMedia = deleteMedia;
-const localUpload_1 = require("../utils/localUpload");
+const s3Upload_1 = require("../utils/s3Upload");
+const fs_1 = __importDefault(require("fs"));
+const path_1 = __importDefault(require("path"));
 /**
- * Controller: Handles a single image file upload and stores it in the API upload folder.
+ * Controller: Handles media file upload directly to Cloudflare R2 (with local fallback).
  *
  * @param req Express Request object containing the multer-parsed file
  * @param res Express Response object
@@ -15,37 +20,37 @@ async function uploadMedia(req, res) {
         if (!req.file) {
             return res.status(400).json({
                 success: false,
-                error: "No image file provided in the upload request payload.",
+                error: "No file provided in the upload request payload.",
             });
         }
-        let filename = req.file.filename;
-        // Fallback if file was uploaded via memory buffer rather than disk
-        if (!filename && req.file.buffer) {
-            filename = await (0, localUpload_1.saveBufferToUploads)(req.file.buffer, req.file.originalname);
+        const fileBuffer = req.file.buffer || (req.file.path ? await fs_1.default.promises.readFile(req.file.path) : null);
+        if (!fileBuffer) {
+            return res.status(400).json({
+                success: false,
+                error: "Unable to read uploaded file buffer.",
+            });
         }
-        // 2. Format public accessible URL
-        const protocol = req.headers["x-forwarded-proto"] || req.protocol || "http";
-        const host = req.get("host") || `localhost:${process.env.PORT || 5002}`;
-        const baseUrl = process.env.API_BASE_URL || process.env.BASE_URL || `${protocol}://${host}`;
-        const publicUrl = `${baseUrl}/uploads/${filename}`;
+        const hostUrl = `${req.protocol}://${req.get("host")}`;
+        // 2. Upload to Cloudflare R2
+        const publicUrl = await (0, s3Upload_1.uploadToS3)(fileBuffer, req.file.originalname, req.file.mimetype, hostUrl);
         // 3. Return public media URL resource
         return res.status(200).json({
             success: true,
             url: publicUrl,
             fileName: req.file.originalname,
-            filename: filename,
+            filename: path_1.default.basename(publicUrl),
         });
     }
     catch (err) {
         console.error("API Upload Error: ", err);
         return res.status(500).json({
             success: false,
-            error: err.message || "An unexpected error occurred while saving to api upload folder.",
+            error: err.message || "An unexpected error occurred while saving the upload.",
         });
     }
 }
 /**
- * Controller: Removes an image from the API upload folder given its URL or filename.
+ * Controller: Removes an image from Cloudflare R2 or local storage given its URL or filename.
  *
  * @param req Express Request containing target URL in body
  * @param res Express Response
@@ -62,18 +67,17 @@ async function deleteMedia(req, res) {
                 error: "No image URL or filename provided in request payload.",
             });
         }
-        // Trigger local upload deletion
-        await (0, localUpload_1.deleteLocalFile)(target);
+        await (0, s3Upload_1.deleteFromS3)(target);
         return res.status(200).json({
             success: true,
-            message: "Media object deleted successfully from upload folder.",
+            message: "Media object deleted successfully.",
         });
     }
     catch (err) {
         console.error("API Media Deletion Error: ", err);
         return res.status(500).json({
             success: false,
-            error: err.message || "An unexpected error occurred while deleting from upload folder.",
+            error: err.message || "An unexpected error occurred while deleting media object.",
         });
     }
 }
