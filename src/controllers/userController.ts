@@ -1264,9 +1264,59 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
     transaction.status = status;
     await transaction.save();
 
+    // Helper to find wallet by ID or username + currency
+    async function resolveTransactionWallet(t: any): Promise<any> {
+      let w = null;
+      if (t.walletId) {
+        w = await Wallet.findById(t.walletId);
+      }
+      if (!w && t.username) {
+        const query: any = {
+          $or: [
+            { username: t.username },
+            { username: { $regex: safeCaseInsensitiveRegex(t.username) } },
+          ],
+        };
+        const currencyFilters = [
+          ...(t.currencySymbol ? [{ currencySymbol: t.currencySymbol }] : []),
+          ...(t.currencyId ? [{ currencyId: t.currencyId }] : []),
+        ];
+        if (currencyFilters.length > 0) {
+          w = await Wallet.findOne({
+            $and: [query, { $or: currencyFilters }],
+          });
+        } else {
+          w = await Wallet.findOne(query);
+        }
+      }
+      if (!w && t.username && t.currencySymbol) {
+        const cur = await Currency.findOne({
+          $or: [
+            { symbol: t.currencySymbol.toUpperCase() },
+            { symbol: { $regex: safeCaseInsensitiveRegex(t.currencySymbol) } },
+          ],
+        });
+        if (cur) {
+          w = await Wallet.create({
+            currencyId: cur._id,
+            currencyName: cur.name,
+            currencySymbol: cur.symbol,
+            currencyLogo: cur.image || "",
+            username: t.username,
+            address: "",
+            balance: 0.0,
+            totalDeposit: 0.0,
+            totalWithdrawal: 0.0,
+            activeDeposit: 0.0,
+          });
+        }
+      }
+      return w;
+    }
+
     // If it's a deposit and marked completed, credit wallet balances and spawn active deposit tranche
     if (transaction.transactionType === "deposit" && status === "completed") {
-      const wallet = await Wallet.findById(transaction.walletId);
+      const wallet = await resolveTransactionWallet(transaction);
       if (!wallet) {
         return res.status(404).json({ success: false, error: "Associated wallet record not found." });
       }
@@ -1309,58 +1359,50 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
       });
 
       // Dispatch approved notification + email
-      try {
-        await sendTemplatedNotification({
+      sendTemplatedNotification({
+        username: transaction.username,
+        templateName: "deposit_approval",
+        variables: {
           username: transaction.username,
-          templateName: "deposit_approval",
-          variables: {
-            username: transaction.username,
-            amount: transaction.amount,
-            currency: transaction.currencySymbol,
-          },
-          notifyAdmin: true,
-          fallbackTitle: "Deposit Approved",
-          fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
-        });
-      } catch (err) {
-        console.error("✗ Failed to dispatch deposit_approval notification:", err);
-      }
+          amount: transaction.amount,
+          currency: transaction.currencySymbol,
+        },
+        notifyAdmin: true,
+        fallbackTitle: "Deposit Approved",
+        fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
+      }).catch((err) => console.error("✗ Failed to dispatch deposit_approval notification:", err));
 
-      // Send approval email to user
-      await sendTemplatedEmail({
+      // Send approval email to user (non-blocking)
+      sendTemplatedEmail({
         username: transaction.username,
         templateName: "deposit_approval",
         variables: { amount: transaction.amount, currency: transaction.currencySymbol },
         fallbackSubject: "Deposit Approved",
         fallbackGreeting: `Hi ${transaction.username},`,
         fallbackContent: `Your deposit of <strong>$${transaction.amount}</strong> worth of <strong>${transaction.currencySymbol}</strong> is processed and approved.`,
-      });
+      }).catch((err) => console.error("✗ Failed to dispatch deposit_approval email:", err));
     } else if (transaction.transactionType === "deposit" && status === "rejected") {
       // Dispatch rejected notification
-      try {
-        await sendTemplatedNotification({
+      sendTemplatedNotification({
+        username: transaction.username,
+        templateName: "deposit_rejected",
+        variables: {
           username: transaction.username,
-          templateName: "deposit_rejected",
-          variables: {
-            username: transaction.username,
-            amount: transaction.amount,
-            currency: transaction.currencySymbol,
-          },
-          notifyAdmin: true,
-          fallbackTitle: "Deposit Rejected",
-          fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
-        });
-      } catch (err) {
-        console.error("✗ Failed to dispatch deposit_rejected notification:", err);
-      }
+          amount: transaction.amount,
+          currency: transaction.currencySymbol,
+        },
+        notifyAdmin: true,
+        fallbackTitle: "Deposit Rejected",
+        fallbackContent: "Hello {{username}}, your deposit of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
+      }).catch((err) => console.error("✗ Failed to dispatch deposit_rejected notification:", err));
     } else if (transaction.transactionType === "capital_access" && status === "completed") {
-      const wallet = await Wallet.findById(transaction.walletId);
+      const wallet = await resolveTransactionWallet(transaction);
       if (wallet) {
         wallet.balance = (wallet.balance || 0) + transaction.amount;
         await wallet.save();
       }
     } else if (transaction.transactionType === "funding" && status === "completed") {
-      const wallet = await Wallet.findById(transaction.walletId);
+      const wallet = await resolveTransactionWallet(transaction);
       if (wallet) {
         wallet.balance = (wallet.balance || 0) + transaction.amount;
         await wallet.save();
@@ -1372,67 +1414,55 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         );
       }
       
-      try {
-        await sendTemplatedNotification({
+      sendTemplatedNotification({
+        username: transaction.username,
+        templateName: "deposit_approval",
+        variables: {
           username: transaction.username,
-          templateName: "deposit_approval",
-          variables: {
-            username: transaction.username,
-            amount: transaction.amount,
-            currency: transaction.currencySymbol,
-          },
-          notifyAdmin: true,
-          fallbackTitle: "Funding Approved",
-          fallbackContent: "Your funding of ${{amount}} worth of {{currency}} is processed and approved.",
-        });
-      } catch (err) {
-        console.error("✗ Failed to dispatch funding_approval notification:", err);
-      }
+          amount: transaction.amount,
+          currency: transaction.currencySymbol,
+        },
+        notifyAdmin: true,
+        fallbackTitle: "Funding Approved",
+        fallbackContent: "Your funding of ${{amount}} worth of {{currency}} is processed and approved.",
+      }).catch((err) => console.error("✗ Failed to dispatch funding_approval notification:", err));
 
-      await sendTemplatedEmail({
+      sendTemplatedEmail({
         username: transaction.username,
         templateName: "deposit_approval",
         variables: { amount: transaction.amount, currency: transaction.currencySymbol },
         fallbackSubject: "Funding Approved",
         fallbackGreeting: `Hi ${transaction.username},`,
         fallbackContent: `Your funding of <strong>$${transaction.amount}</strong> worth of <strong>${transaction.currencySymbol}</strong> is processed and approved.`,
-      });
+      }).catch((err) => console.error("✗ Failed to dispatch funding_approval email:", err));
     } else if (transaction.transactionType === "funding" && status === "rejected") {
-      try {
-        await sendTemplatedNotification({
+      sendTemplatedNotification({
+        username: transaction.username,
+        templateName: "deposit_rejected",
+        variables: {
           username: transaction.username,
-          templateName: "deposit_rejected",
-          variables: {
-            username: transaction.username,
-            amount: transaction.amount,
-            currency: transaction.currencySymbol,
-          },
-          notifyAdmin: true,
-          fallbackTitle: "Funding Rejected",
-          fallbackContent: "Hello {{username}}, your funding request of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
-        });
-      } catch (err) {
-        console.error("✗ Failed to dispatch funding_rejected notification:", err);
-      }
+          amount: transaction.amount,
+          currency: transaction.currencySymbol,
+        },
+        notifyAdmin: true,
+        fallbackTitle: "Funding Rejected",
+        fallbackContent: "Hello {{username}}, your funding request of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
+      }).catch((err) => console.error("✗ Failed to dispatch funding_rejected notification:", err));
     } else if (transaction.transactionType === "withdrawal" && status === "completed") {
-      try {
-        await sendTemplatedNotification({
+      sendTemplatedNotification({
+        username: transaction.username,
+        templateName: "withdrawal_approved",
+        variables: {
           username: transaction.username,
-          templateName: "withdrawal_approved",
-          variables: {
-            username: transaction.username,
-            amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            currency: transaction.currencySymbol,
-          },
-          notifyAdmin: true,
-          fallbackTitle: "Withdrawal Approved",
-          fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is processed and approved.",
-        });
-      } catch (err) {
-        console.error("✗ Failed to dispatch withdrawal_approval notification:", err);
-      }
+          amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          currency: transaction.currencySymbol,
+        },
+        notifyAdmin: true,
+        fallbackTitle: "Withdrawal Approved",
+        fallbackContent: "Hello {{username}}, your withdrawal of ${{amount}} worth of {{currency}} is processed and approved.",
+      }).catch((err) => console.error("✗ Failed to dispatch withdrawal_approval notification:", err));
 
-      await sendTemplatedEmail({
+      sendTemplatedEmail({
         username: transaction.username,
         templateName: "withdrawal_approval",
         variables: {
@@ -1442,33 +1472,29 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         fallbackSubject: "Withdrawal Approved",
         fallbackGreeting: `Hi ${transaction.username},`,
         fallbackContent: `Your withdrawal request of <strong>$${transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> worth of <strong>${transaction.currencySymbol}</strong> is processed and approved.`,
-      });
+      }).catch((err) => console.error("✗ Failed to dispatch withdrawal_approval email:", err));
     } else if (transaction.transactionType === "withdrawal" && status === "rejected") {
-      const wallet = await Wallet.findById(transaction.walletId);
+      const wallet = await resolveTransactionWallet(transaction);
       if (wallet) {
         wallet.balance = (wallet.balance || 0) + transaction.amount;
         wallet.totalWithdrawal = Math.max(0, (wallet.totalWithdrawal || 0) - transaction.amount);
         await wallet.save();
       }
 
-      try {
-        await sendTemplatedNotification({
+      sendTemplatedNotification({
+        username: transaction.username,
+        templateName: "withdrawal_rejected",
+        variables: {
           username: transaction.username,
-          templateName: "withdrawal_rejected",
-          variables: {
-            username: transaction.username,
-            amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
-            currency: transaction.currencySymbol,
-          },
-          notifyAdmin: true,
-          fallbackTitle: "Withdrawal Rejected",
-          fallbackContent: "Hello {{username}}, your withdrawal request of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
-        });
-      } catch (err) {
-        console.error("✗ Failed to dispatch withdrawal_rejected notification:", err);
-      }
+          amount: transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
+          currency: transaction.currencySymbol,
+        },
+        notifyAdmin: true,
+        fallbackTitle: "Withdrawal Rejected",
+        fallbackContent: "Hello {{username}}, your withdrawal request of ${{amount}} worth of {{currency}} was rejected. Please contact support.",
+      }).catch((err) => console.error("✗ Failed to dispatch withdrawal_rejected notification:", err));
 
-      await sendTemplatedEmail({
+      sendTemplatedEmail({
         username: transaction.username,
         templateName: "withdrawal_rejected",
         variables: {
@@ -1478,7 +1504,7 @@ export async function updateTransactionStatusByAdmin(req: Request, res: Response
         fallbackSubject: "Withdrawal Rejected",
         fallbackGreeting: `Hi ${transaction.username},`,
         fallbackContent: `Your withdrawal request of <strong>$${transaction.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</strong> worth of <strong>${transaction.currencySymbol}</strong> was rejected. Please contact support.`,
-      });
+      }).catch((err) => console.error("✗ Failed to dispatch withdrawal_rejected email:", err));
     }
 
     return res.status(200).json({
@@ -1895,6 +1921,7 @@ export async function adminCreateTransaction(req: Request, res: Response) {
     const amountNum = Number(amount);
 
     const isBonus = txnType === "bonus";
+    const isFunding = txnType === "funding" || txnType === "credit";
     const isDeposit = txnType === "deposit";
     const isWithdrawal = txnType === "withdrawal";
     const isReduction = txnType === "reduction";
@@ -1971,22 +1998,33 @@ export async function adminCreateTransaction(req: Request, res: Response) {
     });
     await transaction.save();
 
-    if (isBonus) {
+    if (isFunding || isBonus) {
       wallet.balance = (wallet.balance || 0) + amountNum;
       await wallet.save();
 
       sendTemplatedNotification({
         username: user.username,
-        templateName: "bonus",
+        templateName: isFunding ? "deposit_approval" : "bonus",
         variables: {
           username: user.username,
           amount: amountNum.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }),
           currency: wallet.currencyName,
         },
-        fallbackTitle: "Bonus Received",
-        fallbackContent: `Hi {{username}}, you have received a bonus of ${{amount}} worth of ${wallet.currencyName}`,
+        fallbackTitle: isFunding ? "Wallet Credited" : "Bonus Received",
+        fallbackContent: isFunding
+          ? `Hi {{username}}, your wallet has been credited with $${amountNum.toFixed(2)} in ${wallet.currencyName}.`
+          : `Hi {{username}}, you have received a bonus of $${amountNum.toFixed(2)} worth of ${wallet.currencyName}`,
         notifyAdmin: false,
-      }).catch((err) => console.error("[Bonus] Notification failed:", err));
+      }).catch((err) => console.error("[Funding/Bonus] Notification failed:", err));
+
+      sendTemplatedEmail({
+        username: user.username,
+        templateName: isFunding ? "deposit_approval" : "bonus",
+        variables: { amount: amountNum, currency: wallet.currencySymbol },
+        fallbackSubject: isFunding ? "Wallet Credited" : "Bonus Received",
+        fallbackGreeting: `Hi ${user.username},`,
+        fallbackContent: `Your ${wallet.currencySymbol} wallet has been credited with <strong>$${amountNum.toFixed(2)}</strong> worth of <strong>${wallet.currencyName}</strong>.`,
+      }).catch((err) => console.error("[Funding/Bonus] Email failed:", err));
     }
 
     if (isWithdrawal) {
