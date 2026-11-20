@@ -4,6 +4,7 @@ import { User } from "../models/User";
 import Setting from "../models/Setting";
 import { buildEmailHtml } from "./emailLayout";
 import { compileTemplate } from "./notifications";
+import { safeCaseInsensitiveRegex } from "./regex";
 
 /**
  * Creates a Nodemailer transporter using Hostinger SMTP credentials from .env
@@ -114,7 +115,12 @@ export async function sendTemplatedEmail(params: {
   if (isEmailSuppressed(`${templateName} → ${username}`)) return;
 
   try {
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + username.trim() + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: username.trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(username) } },
+      ],
+    });
     if (!user?.email) {
       console.warn(`[Email] No email found for username "${username}" — skipping ${templateName}`);
       return;

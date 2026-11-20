@@ -12,6 +12,7 @@ const User_1 = require("../models/User");
 const Setting_1 = __importDefault(require("../models/Setting"));
 const emailLayout_1 = require("./emailLayout");
 const notifications_1 = require("./notifications");
+const regex_1 = require("./regex");
 /**
  * Creates a Nodemailer transporter using Hostinger SMTP credentials from .env
  */
@@ -103,7 +104,12 @@ async function sendTemplatedEmail(params) {
     if (isEmailSuppressed(`${templateName} → ${username}`))
         return;
     try {
-        const user = await User_1.User.findOne({ username: { $regex: new RegExp("^" + username.trim() + "$", "i") } });
+        const user = await User_1.User.findOne({
+            $or: [
+                { username: username.trim() },
+                { username: { $regex: (0, regex_1.safeCaseInsensitiveRegex)(username) } },
+            ],
+        });
         if (!user?.email) {
             console.warn(`[Email] No email found for username "${username}" — skipping ${templateName}`);
             return;

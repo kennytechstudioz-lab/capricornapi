@@ -2,6 +2,7 @@
 Object.defineProperty(exports, "__esModule", { value: true });
 exports.Wallet = void 0;
 const mongoose_1 = require("mongoose");
+const regex_1 = require("../utils/regex");
 const WalletSchema = new mongoose_1.Schema({
     currencyId: {
         type: mongoose_1.Schema.Types.ObjectId,
@@ -59,14 +60,20 @@ WalletSchema.post("save", async function (doc) {
             return;
         const WalletModel = doc.constructor;
         const UserModel = WalletModel.db.model("User");
-        // Case-insensitive lookup to guarantee sync matches regardless of username letter casing
+        // Case-insensitive lookup to guarantee sync matches regardless of username letter casing or regex characters
         const user = await UserModel.findOne({
-            username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") },
+            $or: [
+                { username: String(username).trim() },
+                { username: { $regex: (0, regex_1.safeCaseInsensitiveRegex)(username) } },
+            ],
         });
         if (!user)
             return;
         const wallets = await WalletModel.find({
-            username: { $regex: new RegExp("^" + String(user.username).trim() + "$", "i") },
+            $or: [
+                { username: user.username },
+                { username: { $regex: (0, regex_1.safeCaseInsensitiveRegex)(user.username) } },
+            ],
         });
         const total = wallets.reduce((sum, w) => sum + (w.balance || 0), 0);
         await UserModel.updateOne({ _id: user._id }, { balance: total, totalBalance: total });

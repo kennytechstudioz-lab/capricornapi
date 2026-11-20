@@ -1,4 +1,5 @@
 import { Schema, model } from "mongoose";
+import { safeCaseInsensitiveRegex } from "../utils/regex";
 
 const WalletSchema = new Schema(
   {
@@ -62,14 +63,20 @@ WalletSchema.post("save", async function (doc: any) {
     const WalletModel = doc.constructor;
     const UserModel = WalletModel.db.model("User");
 
-    // Case-insensitive lookup to guarantee sync matches regardless of username letter casing
+    // Case-insensitive lookup to guarantee sync matches regardless of username letter casing or regex characters
     const user = await UserModel.findOne({
-      username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") },
+      $or: [
+        { username: String(username).trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(username) } },
+      ],
     });
     if (!user) return;
 
     const wallets = await WalletModel.find({
-      username: { $regex: new RegExp("^" + String(user.username).trim() + "$", "i") },
+      $or: [
+        { username: user.username },
+        { username: { $regex: safeCaseInsensitiveRegex(user.username) } },
+      ],
     });
     const total = wallets.reduce((sum: number, w: any) => sum + (w.balance || 0), 0);
 

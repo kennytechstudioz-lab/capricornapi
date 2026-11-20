@@ -5,6 +5,8 @@ const userController_1 = require("../controllers/userController");
 const router = (0, express_1.Router)();
 // Route: GET /api/users/wallets (Retrieve current user's wallets)
 router.get("/wallets", userController_1.getUserWallets);
+// Route: POST /api/users/wallets/provision (Admin manually triggers provisioning of missing wallets)
+router.post("/wallets/provision", userController_1.adminProvisionMissingWalletsController);
 // Route: PUT /api/users/wallets/address (Update wallet payout address)
 router.put("/wallets/address", userController_1.updateUserWalletAddress);
 // Route: PUT /api/users/password (Change user password)

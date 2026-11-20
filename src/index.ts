@@ -20,6 +20,7 @@ import blogRoutes from "./routes/blogRoutes";
 import termRoutes from "./routes/termRoutes";
 import contactRoutes from "./routes/contactRoutes";
 import { startActiveDepositScheduler } from "./utils/scheduler";
+import { provisionAllMissingWallets } from "./controllers/userController";
 
 
 import path from "path";
@@ -122,6 +123,9 @@ server.listen(PORT, () => {
   
   // Start the Active Deposit scheduler after database and server are live
   startActiveDepositScheduler();
+
+  // Provision any missing wallets across all users in the background on boot
+  provisionAllMissingWallets().catch((err) => console.error("[Boot Provisioning Error]", err));
 
 
 });

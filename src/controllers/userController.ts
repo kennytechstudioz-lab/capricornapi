@@ -14,6 +14,7 @@ import { sendTemplatedNotification, sendNotification } from "../utils/notificati
 import { emitNotification } from "../utils/socket";
 import { sendTemplatedEmail } from "../utils/email";
 import { tickActiveDeposits } from "../utils/scheduler";
+import { escapeRegex, safeCaseInsensitiveRegex } from "../utils/regex";
 
 /**
  * Registers a new user on the Capricorn Energy Ltd platform.
@@ -48,7 +49,12 @@ export async function registerUser(req: Request, res: Response) {
     }
 
     // 4. Duplicate checks
-    const existingUsername = await User.findOne({ username: cleanUsername });
+    const existingUsername = await User.findOne({
+      $or: [
+        { username: cleanUsername },
+        { username: { $regex: safeCaseInsensitiveRegex(cleanUsername) } },
+      ],
+    });
     if (existingUsername) {
       return res.status(400).json({
         error: "Username is already in use by another investor.",
@@ -74,30 +80,33 @@ export async function registerUser(req: Request, res: Response) {
       status: "Active",
     });
 
-    // Create standalone Wallet documents for the registered user if onboarding wallets were submitted
+    // 6. ALWAYS provision standalone Wallet documents for the registered user for ALL active system currencies
+    const systemCurrencies = await Currency.find({});
+    const submittedWalletMap = new Map<string, string>();
     if (Array.isArray(wallets) && wallets.length > 0) {
       for (const w of wallets) {
-        const walletAddress = w.walletAddress?.trim();
-        if (walletAddress) {
-          const currency = await Currency.findOne({
-            symbol: w.currencySymbol?.trim().toUpperCase(),
-          });
-          if (currency) {
-            await Wallet.create({
-              currencyId: currency._id,
-              currencyName: currency.name,
-              currencySymbol: currency.symbol,
-              currencyLogo: currency.image || "",
-              username: cleanUsername,
-              address: walletAddress,
-              balance: 0.0,
-              totalDeposit: 0.0,
-              totalWithdrawal: 0.0,
-              activeDeposit: 0.0,
-            });
-          }
+        const symbol = w.currencySymbol?.trim().toUpperCase();
+        const address = w.walletAddress?.trim();
+        if (symbol && address) {
+          submittedWalletMap.set(symbol, address);
         }
       }
+    }
+
+    for (const currency of systemCurrencies) {
+      const address = submittedWalletMap.get(currency.symbol.toUpperCase()) || "";
+      await Wallet.create({
+        currencyId: currency._id,
+        currencyName: currency.name,
+        currencySymbol: currency.symbol,
+        currencyLogo: currency.image || "",
+        username: cleanUsername,
+        address,
+        balance: 0.0,
+        totalDeposit: 0.0,
+        totalWithdrawal: 0.0,
+        activeDeposit: 0.0,
+      });
     }
 
     // Handle Referral association if referredBy exists
@@ -350,7 +359,12 @@ export async function approveVerification(req: Request, res: Response) {
     const { username } = req.body;
     if (!username) return res.status(400).json({ error: "Username is required." });
 
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: String(username).trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(String(username)) } },
+      ],
+    });
     if (!user) return res.status(404).json({ error: "User not found." });
 
     (user as any).isVerifying = false;
@@ -401,7 +415,12 @@ export async function rejectVerification(req: Request, res: Response) {
     if (!reason || !String(reason).trim()) return res.status(400).json({ error: "Rejection reason is required." });
 
     const cleanReason = String(reason).trim();
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: String(username).trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(String(username)) } },
+      ],
+    });
     if (!user) return res.status(404).json({ error: "User not found." });
 
     (user as any).isVerifying = false;
@@ -544,13 +563,27 @@ export async function getUserWallets(req: Request, res: Response) {
       });
     }
 
-    const usernameVal = String(username);
+    const usernameVal = String(username).trim();
 
-    // 1. Fetch all system currencies
+    // 1. Resolve canonical user record
+    const user = await User.findOne({
+      $or: [
+        { username: usernameVal },
+        { username: { $regex: safeCaseInsensitiveRegex(usernameVal) } },
+      ],
+    });
+    const canonicalUsername = user ? user.username : usernameVal;
+
+    // 2. Fetch all system currencies
     const currencies = await Currency.find({});
 
-    // 2. Fetch the user's existing wallets
-    const existingWallets = await Wallet.find({ username: { $regex: new RegExp("^" + usernameVal + "$", "i") } });
+    // 3. Fetch the user's existing wallets safely using escaped regex and canonical username
+    const existingWallets = await Wallet.find({
+      $or: [
+        { username: canonicalUsername },
+        { username: { $regex: safeCaseInsensitiveRegex(canonicalUsername) } },
+      ],
+    });
 
     // Map existing wallets by currencyId for quick lookup
     const walletMap = new Map();
@@ -560,7 +593,7 @@ export async function getUserWallets(req: Request, res: Response) {
 
     const updatedWallets = [];
 
-    // 3. Sync user wallets with system currencies
+    // 4. Sync user wallets with system currencies (auto-create missing)
     for (const currency of currencies) {
       const curIdStr = currency._id.toString();
       const existingWallet = walletMap.get(curIdStr);
@@ -594,13 +627,13 @@ export async function getUserWallets(req: Request, res: Response) {
           updatedWallets.push(existingWallet);
         }
       } else {
-        // Wallet does not exist - create a new wallet for this user
+        // Wallet does not exist - auto-provision missing wallet for this user
         const newWallet = await Wallet.create({
           currencyId: currency._id,
           currencyName: currency.name,
           currencySymbol: currency.symbol,
           currencyLogo: currency.image,
-          username: usernameVal,
+          username: canonicalUsername,
           address: "",
           balance: 0.0,
           totalDeposit: 0.0,
@@ -608,6 +641,7 @@ export async function getUserWallets(req: Request, res: Response) {
           activeDeposit: 0.0,
         });
         updatedWallets.push(newWallet);
+        console.log(`[Wallet System] Auto-provisioned missing ${currency.symbol} wallet for @${canonicalUsername}`);
       }
     }
 
@@ -641,7 +675,12 @@ export async function getUserProfile(req: Request, res: Response) {
       return res.status(400).json({ error: "Missing username parameter." });
     }
 
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username) + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: String(username).trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(String(username)) } },
+      ],
+    });
     if (!user) {
       return res.status(404).json({ error: "User profile not found." });
     }
@@ -700,7 +739,12 @@ export async function updateUserProfile(req: Request, res: Response) {
       return res.status(400).json({ error: "Missing username parameter." });
     }
 
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username) + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: String(username).trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(String(username)) } },
+      ],
+    });
     if (!user) {
       return res.status(404).json({ error: "User profile not found." });
     }
@@ -820,7 +864,10 @@ export async function allocateUserDeposit(req: Request, res: Response) {
 
     // Find user's wallet
     const wallet = await Wallet.findOne({
-      username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
+      $or: [
+        { username: usernameVal },
+        { username: { $regex: safeCaseInsensitiveRegex(usernameVal) } },
+      ],
       currencySymbol: walletSymbol,
     }).sort({ balance: -1 });
 
@@ -939,7 +986,10 @@ export async function fundUserWallet(req: Request, res: Response) {
     }
 
     const wallet = await Wallet.findOne({
-      username: { $regex: new RegExp("^" + usernameVal + "$", "i") },
+      $or: [
+        { username: usernameVal },
+        { username: { $regex: safeCaseInsensitiveRegex(usernameVal) } },
+      ],
       currencySymbol: walletSymbol,
     }).sort({ balance: -1 });
 
@@ -1009,8 +1059,13 @@ export async function getUserTransactions(req: Request, res: Response) {
     const pageNum = Math.max(1, parseInt(String(page), 10) || 1);
     const limitNum = Math.min(100, Math.max(1, parseInt(String(limit), 10) || 20));
     const skip = (pageNum - 1) * limitNum;
-    const usernameVal = String(username);
-    const query = { username: { $regex: new RegExp("^" + usernameVal + "$", "i") } };
+    const usernameVal = String(username).trim();
+    const query = {
+      $or: [
+        { username: usernameVal },
+        { username: { $regex: safeCaseInsensitiveRegex(usernameVal) } },
+      ],
+    };
 
     const [transactions, total] = await Promise.all([
       Transaction.find(query).sort({ createdAt: -1 }).skip(skip).limit(limitNum),
@@ -1041,7 +1096,10 @@ export async function updateUserWalletAddress(req: Request, res: Response) {
     
     const wallet = await Wallet.findOne({
       _id: walletId,
-      username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+      $or: [
+        { username: username.trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(username) } },
+      ]
     });
     
     if (!wallet) {
@@ -1072,7 +1130,10 @@ export async function changeUserPassword(req: Request, res: Response) {
     }
     
     const user = await User.findOne({
-      username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+      $or: [
+        { username: username.trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(username) } },
+      ]
     });
     
     if (!user) {
@@ -1112,7 +1173,10 @@ export async function toggleUser2FA(req: Request, res: Response) {
     }
     
     const user = await User.findOne({
-      username: { $regex: new RegExp("^" + username.trim() + "$", "i") }
+      $or: [
+        { username: username.trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(username) } },
+      ]
     });
     
     if (!user) {
@@ -1639,12 +1703,20 @@ export async function requestUserWithdrawal(req: Request, res: Response) {
       return res.status(400).json({ error: "Invalid withdrawal amount." });
     }
 
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: String(username).trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(String(username)) } },
+      ],
+    });
     if (!user) return res.status(404).json({ error: "User not found." });
 
     const wallet = await Wallet.findOne({
       username: user.username,
-      currencySymbol: { $regex: new RegExp("^" + String(currencySymbol).trim() + "$", "i") },
+      $or: [
+        { currencySymbol: String(currencySymbol).trim() },
+        { currencySymbol: { $regex: safeCaseInsensitiveRegex(String(currencySymbol)) } },
+      ],
     }).sort({ balance: -1 });
     if (!wallet) return res.status(404).json({ error: `No ${currencySymbol} wallet found.` });
 
@@ -1717,7 +1789,12 @@ export async function requestCapitalAccess(req: Request, res: Response) {
       return res.status(404).json({ error: "Investment plan not found." });
     }
 
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: String(username).trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(String(username)) } },
+      ],
+    });
     if (!user) return res.status(404).json({ error: "User not found." });
 
     const existingRequest = await Transaction.findOne({
@@ -1731,7 +1808,10 @@ export async function requestCapitalAccess(req: Request, res: Response) {
 
     const wallet = await Wallet.findOne({
       username: user.username,
-      currencySymbol: { $regex: new RegExp("^" + String(walletSymbol).trim() + "$", "i") },
+      $or: [
+        { currencySymbol: String(walletSymbol).trim() },
+        { currencySymbol: { $regex: safeCaseInsensitiveRegex(String(walletSymbol)) } },
+      ],
     }).sort({ balance: -1 });
     if (!wallet) return res.status(404).json({ error: `No ${walletSymbol} wallet found.` });
 
@@ -1766,14 +1846,48 @@ export async function adminCreateTransaction(req: Request, res: Response) {
     }
 
     const cleanUsername = String(username).trim();
-    const user = await User.findOne({ username: { $regex: new RegExp("^" + cleanUsername + "$", "i") } });
+    const user = await User.findOne({
+      $or: [
+        { username: cleanUsername },
+        { username: { $regex: safeCaseInsensitiveRegex(cleanUsername) } },
+      ],
+    });
     if (!user) return res.status(404).json({ error: "User not found." });
 
     const symbolClean = String(currencySymbol).trim();
-    const wallet = await Wallet.findOne({
+    let wallet = await Wallet.findOne({
       username: user.username,
-      currencySymbol: { $regex: new RegExp("^" + symbolClean + "$", "i") },
+      $or: [
+        { currencySymbol: symbolClean },
+        { currencySymbol: { $regex: safeCaseInsensitiveRegex(symbolClean) } },
+      ],
     }).sort({ balance: -1 });
+
+    // Auto-provision wallet on the fly if it didn't exist yet so admin funding never fails
+    if (!wallet) {
+      const currency = await Currency.findOne({
+        $or: [
+          { symbol: symbolClean.toUpperCase() },
+          { symbol: { $regex: safeCaseInsensitiveRegex(symbolClean) } },
+        ],
+      });
+      if (currency) {
+        wallet = await Wallet.create({
+          currencyId: currency._id,
+          currencyName: currency.name,
+          currencySymbol: currency.symbol,
+          currencyLogo: currency.image || "",
+          username: user.username,
+          address: "",
+          balance: 0.0,
+          totalDeposit: 0.0,
+          totalWithdrawal: 0.0,
+          activeDeposit: 0.0,
+        });
+        console.log(`[Admin Transaction] Auto-provisioned missing ${currency.symbol} wallet for @${user.username}`);
+      }
+    }
+
     if (!wallet) return res.status(404).json({ error: `No ${symbolClean} wallet found for this user.` });
 
     const txnType = String(transactionType).toLowerCase();
@@ -2091,7 +2205,10 @@ export async function verifyTwoFactorOtp(req: Request, res: Response) {
     }
 
     const user = await User.findOne({
-      username: { $regex: new RegExp("^" + username.trim() + "$", "i") },
+      $or: [
+        { username: username.trim() },
+        { username: { $regex: safeCaseInsensitiveRegex(username) } },
+      ],
     });
 
     if (!user) {
@@ -2129,6 +2246,81 @@ export async function verifyTwoFactorOtp(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in verifyTwoFactorOtp controller:", error);
     return res.status(500).json({ success: false, error: "Internal server error verifying 2FA code." });
+  }
+}
+
+// ─── System-Wide Wallet Provisioning ──────────────────────────────────────────
+
+/**
+ * Scans all existing users in the database and ensures every user has a wallet
+ * document created for every active system currency.
+ * Safe, idempotent, and self-healing.
+ */
+export async function provisionAllMissingWallets(): Promise<{ usersProcessed: number; walletsCreated: number }> {
+  try {
+    const currencies = await Currency.find({});
+    if (!currencies || currencies.length === 0) {
+      return { usersProcessed: 0, walletsCreated: 0 };
+    }
+
+    const users = await User.find({});
+    let walletsCreated = 0;
+
+    for (const user of users) {
+      const existingWallets = await Wallet.find({
+        $or: [
+          { username: user.username },
+          { username: { $regex: safeCaseInsensitiveRegex(user.username) } },
+        ],
+      });
+
+      const existingCurrencyIds = new Set(
+        existingWallets.map((w) => w.currencyId.toString())
+      );
+
+      for (const currency of currencies) {
+        const curIdStr = currency._id.toString();
+        if (!existingCurrencyIds.has(curIdStr)) {
+          await Wallet.create({
+            currencyId: currency._id,
+            currencyName: currency.name,
+            currencySymbol: currency.symbol,
+            currencyLogo: currency.image || "",
+            username: user.username,
+            address: "",
+            balance: 0.0,
+            totalDeposit: 0.0,
+            totalWithdrawal: 0.0,
+            activeDeposit: 0.0,
+          });
+          walletsCreated++;
+          console.log(`[Wallet Provisioner] Created missing ${currency.symbol} wallet for @${user.username}`);
+        }
+      }
+    }
+
+    console.log(`[Wallet Provisioner] Completed. Processed ${users.length} users, created ${walletsCreated} missing wallets.`);
+    return { usersProcessed: users.length, walletsCreated };
+  } catch (error) {
+    console.error("✗ Error in provisionAllMissingWallets:", error);
+    return { usersProcessed: 0, walletsCreated: 0 };
+  }
+}
+
+/**
+ * Admin Controller to manually trigger provisioning of missing wallets
+ */
+export async function adminProvisionMissingWalletsController(req: Request, res: Response) {
+  try {
+    const result = await provisionAllMissingWallets();
+    return res.status(200).json({
+      success: true,
+      message: `Provisioning complete. Processed ${result.usersProcessed} users, created ${result.walletsCreated} missing wallets.`,
+      data: result,
+    });
+  } catch (error: any) {
+    console.error("✗ Error in adminProvisionMissingWalletsController:", error);
+    return res.status(500).json({ error: "Failed to provision missing wallets." });
   }
 }
 

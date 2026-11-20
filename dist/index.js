@@ -25,6 +25,7 @@ const blogRoutes_1 = __importDefault(require("./routes/blogRoutes"));
 const termRoutes_1 = __importDefault(require("./routes/termRoutes"));
 const contactRoutes_1 = __importDefault(require("./routes/contactRoutes"));
 const scheduler_1 = require("./utils/scheduler");
+const userController_1 = require("./controllers/userController");
 const fs_1 = __importDefault(require("fs"));
 const localUpload_1 = require("./utils/localUpload");
 // Load configuration variables
@@ -109,4 +110,6 @@ server.listen(PORT, () => {
     console.log(`========================================`);
     // Start the Active Deposit scheduler after database and server are live
     (0, scheduler_1.startActiveDepositScheduler)();
+    // Provision any missing wallets across all users in the background on boot
+    (0, userController_1.provisionAllMissingWallets)().catch((err) => console.error("[Boot Provisioning Error]", err));
 });

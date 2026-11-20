@@ -38,6 +38,7 @@ import {
   resetPassword,
   verifyTwoFactorOtp,
   requestCapitalAccess,
+  adminProvisionMissingWalletsController,
 } from "../controllers/userController";
 
 const router = Router();
@@ -45,6 +46,9 @@ const router = Router();
 
 // Route: GET /api/users/wallets (Retrieve current user's wallets)
 router.get("/wallets", getUserWallets);
+
+// Route: POST /api/users/wallets/provision (Admin manually triggers provisioning of missing wallets)
+router.post("/wallets/provision", adminProvisionMissingWalletsController);
 
 // Route: PUT /api/users/wallets/address (Update wallet payout address)
 router.put("/wallets/address", updateUserWalletAddress);

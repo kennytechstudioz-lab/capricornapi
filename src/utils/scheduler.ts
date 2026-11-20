@@ -4,6 +4,7 @@ import { Earning } from "../models/Earning";
 import { Currency } from "../models/Currency";
 import { sendTemplatedNotification } from "./notifications";
 import { sendTemplatedEmail } from "./email";
+import { safeCaseInsensitiveRegex } from "./regex";
 
 /**
  * Robust helper to locate a user's wallet record.
@@ -21,11 +22,18 @@ async function findUserWallet(deposit: any): Promise<any> {
   if (!wallet && deposit.username) {
     const cleanUsername = String(deposit.username).trim();
     wallet = await Wallet.findOne({
-      username: { $regex: new RegExp("^" + cleanUsername + "$", "i") },
       $or: [
-        ...(deposit.currencySymbol ? [{ currencySymbol: deposit.currencySymbol }] : []),
-        ...(deposit.currencyId ? [{ currencyId: deposit.currencyId }] : []),
-        ...(deposit.currencyName ? [{ currencyName: deposit.currencyName }] : []),
+        { username: cleanUsername },
+        { username: { $regex: safeCaseInsensitiveRegex(cleanUsername) } },
+      ],
+      $and: [
+        {
+          $or: [
+            ...(deposit.currencySymbol ? [{ currencySymbol: deposit.currencySymbol }] : []),
+            ...(deposit.currencyId ? [{ currencyId: deposit.currencyId }] : []),
+            ...(deposit.currencyName ? [{ currencyName: deposit.currencyName }] : []),
+          ],
+        },
       ],
     });
 

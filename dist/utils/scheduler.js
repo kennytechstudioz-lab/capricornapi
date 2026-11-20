@@ -8,6 +8,7 @@ const Earning_1 = require("../models/Earning");
 const Currency_1 = require("../models/Currency");
 const notifications_1 = require("./notifications");
 const email_1 = require("./email");
+const regex_1 = require("./regex");
 /**
  * Robust helper to locate a user's wallet record.
  * Tries direct ID first, then falls back to case-insensitive username + currency matching,
@@ -22,11 +23,18 @@ async function findUserWallet(deposit) {
     if (!wallet && deposit.username) {
         const cleanUsername = String(deposit.username).trim();
         wallet = await Wallet_1.Wallet.findOne({
-            username: { $regex: new RegExp("^" + cleanUsername + "$", "i") },
             $or: [
-                ...(deposit.currencySymbol ? [{ currencySymbol: deposit.currencySymbol }] : []),
-                ...(deposit.currencyId ? [{ currencyId: deposit.currencyId }] : []),
-                ...(deposit.currencyName ? [{ currencyName: deposit.currencyName }] : []),
+                { username: cleanUsername },
+                { username: { $regex: (0, regex_1.safeCaseInsensitiveRegex)(cleanUsername) } },
+            ],
+            $and: [
+                {
+                    $or: [
+                        ...(deposit.currencySymbol ? [{ currencySymbol: deposit.currencySymbol }] : []),
+                        ...(deposit.currencyId ? [{ currencyId: deposit.currencyId }] : []),
+                        ...(deposit.currencyName ? [{ currencyName: deposit.currencyName }] : []),
+                    ],
+                },
             ],
         });
         if (wallet) {
