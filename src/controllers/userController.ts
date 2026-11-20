@@ -585,11 +585,32 @@ export async function getUserWallets(req: Request, res: Response) {
       ],
     });
 
-    // Map existing wallets by currencyId for quick lookup
+    // Map existing wallets by currencyId for quick lookup (safely merging duplicates if any exist)
     const walletMap = new Map();
-    existingWallets.forEach((w) => {
-      walletMap.set(w.currencyId.toString(), w);
-    });
+    for (const w of existingWallets) {
+      const curIdStr = w.currencyId ? w.currencyId.toString() : "";
+      if (!curIdStr) continue;
+      if (!walletMap.has(curIdStr)) {
+        walletMap.set(curIdStr, w);
+      } else {
+        const primary = walletMap.get(curIdStr);
+        primary.balance = (primary.balance || 0) + (w.balance || 0);
+        primary.activeDeposit = (primary.activeDeposit || 0) + (w.activeDeposit || 0);
+        primary.totalDeposit = (primary.totalDeposit || 0) + (w.totalDeposit || 0);
+        primary.totalWithdrawal = (primary.totalWithdrawal || 0) + (w.totalWithdrawal || 0);
+        if (!primary.address && w.address) primary.address = w.address;
+        await Wallet.findByIdAndUpdate(primary._id, {
+          balance: primary.balance,
+          activeDeposit: primary.activeDeposit,
+          totalDeposit: primary.totalDeposit,
+          totalWithdrawal: primary.totalWithdrawal,
+          address: primary.address,
+        });
+        await Transaction.updateMany({ walletId: w._id }, { walletId: primary._id });
+        await ActiveDeposit.updateMany({ walletId: w._id }, { walletId: primary._id });
+        await Wallet.deleteOne({ _id: w._id });
+      }
+    }
 
     const updatedWallets = [];
 
@@ -1866,9 +1887,9 @@ export async function requestCapitalAccess(req: Request, res: Response) {
 
 export async function adminCreateTransaction(req: Request, res: Response) {
   try {
-    const { username, transactionType, amount, currencySymbol, method, planId } = req.body;
-    if (!username || !amount || !currencySymbol || !transactionType) {
-      return res.status(400).json({ error: "username, amount, currencySymbol, and transactionType are required." });
+    const { username, transactionType, amount, currencySymbol, walletId, method, planId } = req.body;
+    if (!username || !amount || (!currencySymbol && !walletId) || !transactionType) {
+      return res.status(400).json({ error: "username, amount, currencySymbol or walletId, and transactionType are required." });
     }
 
     const cleanUsername = String(username).trim();
@@ -1880,14 +1901,21 @@ export async function adminCreateTransaction(req: Request, res: Response) {
     });
     if (!user) return res.status(404).json({ error: "User not found." });
 
-    const symbolClean = String(currencySymbol).trim();
-    let wallet = await Wallet.findOne({
-      username: user.username,
-      $or: [
-        { currencySymbol: symbolClean },
-        { currencySymbol: { $regex: safeCaseInsensitiveRegex(symbolClean) } },
-      ],
-    }).sort({ balance: -1 });
+    let wallet = null;
+    if (walletId) {
+      wallet = await Wallet.findById(walletId);
+    }
+
+    const symbolClean = String(currencySymbol || wallet?.currencySymbol || "").trim();
+    if (!wallet && symbolClean) {
+      wallet = await Wallet.findOne({
+        username: user.username,
+        $or: [
+          { currencySymbol: symbolClean },
+          { currencySymbol: { $regex: safeCaseInsensitiveRegex(symbolClean) } },
+        ],
+      }).sort({ balance: -1 });
+    }
 
     // Auto-provision wallet on the fly if it didn't exist yet so admin funding never fails
     if (!wallet) {

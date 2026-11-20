@@ -52,6 +52,8 @@ const WalletSchema = new mongoose_1.Schema({
 }, {
     timestamps: true,
 });
+// Prevent duplicate wallets for the same user and currency
+WalletSchema.index({ username: 1, currencyId: 1 }, { unique: true });
 // Post-save hook — keep user.balance and user.totalBalance in sync with the sum of all wallet balances
 WalletSchema.post("save", async function (doc) {
     try {
