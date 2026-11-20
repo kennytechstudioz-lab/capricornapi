@@ -1927,25 +1927,43 @@ export async function adminCreateTransaction(req: Request, res: Response) {
     // Resolve plan details before creating the transaction
     let planDuration = 0, planName = "Admin Deposit", planPercentage = 0, planReferralPercent = 0;
     if (isDeposit && planId) {
-      const plan = await Plan.findById(planId);
-      if (plan) {
-        planDuration = plan.duration;
-        planName = plan.name;
-        planPercentage = plan.percent;
-        planReferralPercent = plan.referralPercent;
+      try {
+        const plan = await Plan.findById(planId);
+        if (plan) {
+          planDuration = Number(plan.duration) || 0;
+          planName = plan.name || "Admin Deposit";
+          planPercentage = Number(plan.percent) || 0;
+          planReferralPercent = Number(plan.referralPercent) || 0;
+        }
+      } catch (planErr) {
+        console.warn("[Admin Transaction] Could not resolve plan by ID, proceeding with defaults:", planErr);
+      }
+    }
+
+    // Ensure wallet has currencyId
+    if (!wallet.currencyId) {
+      const cur = await Currency.findOne({
+        $or: [
+          { symbol: symbolClean.toUpperCase() },
+          { symbol: { $regex: safeCaseInsensitiveRegex(symbolClean) } },
+        ],
+      });
+      if (cur) {
+        wallet.currencyId = cur._id;
+        await wallet.save();
       }
     }
 
     const transaction = new Transaction({
       currencyId: wallet.currencyId,
       currencyLogo: (wallet as any).currencyLogo || "",
-      currencyName: wallet.currencyName,
-      currencySymbol: wallet.currencySymbol,
+      currencyName: wallet.currencyName || symbolClean,
+      currencySymbol: wallet.currencySymbol || symbolClean,
       walletId: wallet._id,
       username: user.username,
-      planDuration,
-      planPercentage,
-      planReferralPercent,
+      planDuration: planDuration || 0,
+      planPercentage: planPercentage || 0,
+      planReferralPercent: planReferralPercent || 0,
       amount: amountNum,
       transactionType: txnType,
       method: txnMethod,
@@ -2002,16 +2020,18 @@ export async function adminCreateTransaction(req: Request, res: Response) {
       await ActiveDeposit.create({
         currencyId: wallet.currencyId,
         currencyLogo: (wallet as any).currencyLogo || "",
-        currencyName: wallet.currencyName,
-        currencySymbol: wallet.currencySymbol,
+        currencyName: wallet.currencyName || symbolClean,
+        currencySymbol: wallet.currencySymbol || symbolClean,
         walletId: wallet._id,
         username: user.username,
         amount: amountNum,
-        planDuration,
-        planName,
-        planPercentage,
-        planReferralPercent,
-        daysRemaining: planDuration,
+        planDuration: planDuration || 1,
+        planName: planName || "Admin Deposit",
+        planPercentage: planPercentage || 0,
+        planReferralPercent: planReferralPercent || 0,
+        daysRemaining: planDuration || 1,
+        status: "active",
+        principalReturned: false,
         transactionId: transaction._id,
         lastDecrementedAt: new Date(),
       });
@@ -2029,20 +2049,20 @@ export async function adminCreateTransaction(req: Request, res: Response) {
         fallbackContent: "Your deposit of ${{amount}} worth of {{currency}} is processed and approved.",
       }).catch((err) => console.error("[Deposit] Notification failed:", err));
 
-      await sendTemplatedEmail({
+      sendTemplatedEmail({
         username: user.username,
         templateName: "deposit_approval",
         variables: { amount: amountNum, currency: wallet.currencySymbol },
         fallbackSubject: "Deposit Approved",
         fallbackGreeting: `Hi ${user.username},`,
         fallbackContent: `Your deposit of <strong>$${amountNum}</strong> worth of <strong>${wallet.currencySymbol}</strong> is processed and approved.`,
-      });
+      }).catch((err) => console.error("[Deposit] Email failed:", err));
     }
 
     return res.status(201).json({ success: true, message: "Transaction created successfully.", transaction });
   } catch (error: any) {
     console.error("✗ Error in adminCreateTransaction:", error);
-    return res.status(500).json({ error: "Internal server error creating transaction." });
+    return res.status(500).json({ error: error?.message || "Internal server error creating transaction." });
   }
 }
 
