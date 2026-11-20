@@ -17,6 +17,10 @@ function createTransporter() {
       user: process.env.EMAIL_FROM_ADDRESS,
       pass: process.env.EMAIL_PASSWORD,
     },
+    // Set fail-fast network timeouts so expired/unreachable mailboxes never hang the API
+    connectionTimeout: 4000,
+    greetingTimeout: 4000,
+    socketTimeout: 4000,
   });
 }
 
@@ -35,16 +39,16 @@ async function getCompanyName(): Promise<string> {
 /**
  * Returns true if email sending should be suppressed.
  * Suppressed when:
- *   - EMAIL_PASSWORD is not set (no credentials), OR
- *   - SUPPRESS_EMAIL=true is explicitly set in .env
+ *   - SUPPRESS_EMAIL=true or BYPASS_EMAIL=true is set in .env
+ *   - EMAIL_PASSWORD or EMAIL_FROM_ADDRESS is missing
  */
-function isEmailSuppressed(label: string): boolean {
-  if (!process.env.EMAIL_PASSWORD) {
-    console.warn(`[Email] EMAIL_PASSWORD not set — skipping "${label}"`);
+export function isEmailSuppressed(label: string): boolean {
+  if (process.env.SUPPRESS_EMAIL === "true" || process.env.BYPASS_EMAIL === "true") {
+    console.log(`[Email:SUPPRESSED] "${label}" (SUPPRESS_EMAIL=true)`);
     return true;
   }
-  if (process.env.SUPPRESS_EMAIL === "true") {
-    console.log(`[Email:SUPPRESSED] "${label}" (SUPPRESS_EMAIL=true)`);
+  if (!process.env.EMAIL_PASSWORD || !process.env.EMAIL_FROM_ADDRESS) {
+    console.warn(`[Email] Email credentials not configured — skipping "${label}"`);
     return true;
   }
   return false;
@@ -53,6 +57,7 @@ function isEmailSuppressed(label: string): boolean {
 /**
  * Sends an email directly to any address without requiring a registered user lookup.
  * Used for contact form inquiries and other outbound emails to arbitrary recipients.
+ * Bypasses cleanly without throwing errors if email services are down.
  */
 export async function sendDirectEmail(params: {
   to: string;
@@ -64,24 +69,24 @@ export async function sendDirectEmail(params: {
 
   if (isEmailSuppressed(`direct → ${to}`)) return;
 
-  const companyName = await getCompanyName();
-  const fromName = process.env.EMAIL_FROM_NAME || companyName;
-  const fromAddress = process.env.EMAIL_FROM_ADDRESS || "";
-
-  // Replace {{companyName}} in subject, greeting, and content
-  const vars = { companyName };
-  const compiledSubject = compileTemplate(subject, vars);
-  const compiledGreeting = compileTemplate(greeting, vars);
-  const compiledContent = compileTemplate(content, vars);
-
-  const html = buildEmailHtml({
-    title: compiledSubject,
-    greeting: compiledGreeting,
-    content: compiledContent,
-    companyName,
-  });
-
   try {
+    const companyName = await getCompanyName();
+    const fromName = process.env.EMAIL_FROM_NAME || companyName;
+    const fromAddress = process.env.EMAIL_FROM_ADDRESS || "";
+
+    // Replace {{companyName}} in subject, greeting, and content
+    const vars = { companyName };
+    const compiledSubject = compileTemplate(subject, vars);
+    const compiledGreeting = compileTemplate(greeting, vars);
+    const compiledContent = compileTemplate(content, vars);
+
+    const html = buildEmailHtml({
+      title: compiledSubject,
+      greeting: compiledGreeting,
+      content: compiledContent,
+      companyName,
+    });
+
     const transporter = createTransporter();
     await transporter.sendMail({
       from: `"${fromName}" <${fromAddress}>`,
@@ -91,8 +96,8 @@ export async function sendDirectEmail(params: {
     });
     console.log(`[Email] ✓ Direct email sent to ${to} — subject: "${compiledSubject}"`);
   } catch (err: any) {
-    console.error(`[Email] ✗ Failed to send direct email to "${to}":`, err.message);
-    throw new Error(err.message);
+    console.error(`[Email] ✗ Failed to send direct email to "${to}":`, err?.message || err);
+    // Suppress error so caller process (like user actions or schedulers) is never blocked
   }
 }
 
@@ -144,7 +149,8 @@ export async function sendTemplatedEmail(params: {
     });
 
     console.log(`[Email] ✓ "${templateName}" sent to ${user.email}`);
-  } catch (err) {
-    console.error(`[Email] ✗ Failed to send "${templateName}" for user "${username}":`, err);
+  } catch (err: any) {
+    console.error(`[Email] ✗ Failed to send "${templateName}" for user "${username}":`, err?.message || err);
+    // Never rethrow - email failures must never block wallet or deposit operations
   }
 }

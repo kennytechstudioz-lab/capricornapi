@@ -23,6 +23,7 @@ exports.updateTransactionStatusByAdmin = updateTransactionStatusByAdmin;
 exports.getActiveDeposits = getActiveDeposits;
 exports.getAllActiveDepositsForAdmin = getAllActiveDepositsForAdmin;
 exports.deleteActiveDeposit = deleteActiveDeposit;
+exports.reconcileActiveDepositsController = reconcileActiveDepositsController;
 exports.getUserEarnings = getUserEarnings;
 exports.getAllEarningsForAdmin = getAllEarningsForAdmin;
 exports.deleteEarning = deleteEarning;
@@ -51,6 +52,7 @@ const hash_1 = require("../utils/hash");
 const notifications_1 = require("../utils/notifications");
 const socket_1 = require("../utils/socket");
 const email_1 = require("../utils/email");
+const scheduler_1 = require("../utils/scheduler");
 /**
  * Registers a new user on the Capricorn Energy Ltd platform.
  * Validates payload parameters and hashes password elements.
@@ -1393,6 +1395,26 @@ async function deleteActiveDeposit(req, res) {
     catch (error) {
         console.error("✗ Error in deleteActiveDeposit controller:", error);
         return res.status(500).json({ success: false, error: error.message || "Internal server error deleting active deposit." });
+    }
+}
+/**
+ * Manually or programmatically triggers active deposits catch-up sweep and
+ * reconciles any completed deposits whose principal or earnings have not yet been credited.
+ */
+async function reconcileActiveDepositsController(req, res) {
+    try {
+        await (0, scheduler_1.tickActiveDeposits)();
+        return res.status(200).json({
+            success: true,
+            message: "Active deposit sweep and reconciliation executed successfully.",
+        });
+    }
+    catch (error) {
+        console.error("✗ Error in reconcileActiveDepositsController:", error);
+        return res.status(500).json({
+            success: false,
+            error: error.message || "Internal server error triggering deposit reconciliation.",
+        });
     }
 }
 /**

@@ -35,6 +35,8 @@ router.get("/active-deposits", userController_1.getActiveDeposits);
 router.get("/active-deposits/all", userController_1.getAllActiveDepositsForAdmin);
 // Route: DELETE /api/users/active-deposits/:id (Delete an active deposit tranche by admin)
 router.delete("/active-deposits/:id", userController_1.deleteActiveDeposit);
+// Route: POST /api/users/active-deposits/reconcile (Trigger catch-up sweep and completed deposit reconciliation)
+router.post("/active-deposits/reconcile", userController_1.reconcileActiveDepositsController);
 // Route: GET /api/users/earnings (Retrieve current user's compounding payouts)
 router.get("/earnings", userController_1.getUserEarnings);
 // Route: GET /api/users/earnings/all (Retrieve all platform-wide earnings for admin auditing)

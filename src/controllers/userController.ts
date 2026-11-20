@@ -13,6 +13,7 @@ import { hashPassword } from "../utils/hash";
 import { sendTemplatedNotification, sendNotification } from "../utils/notifications";
 import { emitNotification } from "../utils/socket";
 import { sendTemplatedEmail } from "../utils/email";
+import { tickActiveDeposits } from "../utils/scheduler";
 
 /**
  * Registers a new user on the Capricorn Energy Ltd platform.
@@ -1472,6 +1473,26 @@ export async function deleteActiveDeposit(req: Request, res: Response) {
   } catch (error: any) {
     console.error("✗ Error in deleteActiveDeposit controller:", error);
     return res.status(500).json({ success: false, error: error.message || "Internal server error deleting active deposit." });
+  }
+}
+
+/**
+ * Manually or programmatically triggers active deposits catch-up sweep and
+ * reconciles any completed deposits whose principal or earnings have not yet been credited.
+ */
+export async function reconcileActiveDepositsController(req: Request, res: Response) {
+  try {
+    await tickActiveDeposits();
+    return res.status(200).json({
+      success: true,
+      message: "Active deposit sweep and reconciliation executed successfully.",
+    });
+  } catch (error: any) {
+    console.error("✗ Error in reconcileActiveDepositsController:", error);
+    return res.status(500).json({
+      success: false,
+      error: error.message || "Internal server error triggering deposit reconciliation.",
+    });
   }
 }
 

@@ -57,6 +57,15 @@ const ActiveDepositSchema = new mongoose_1.Schema({
         type: Number,
         required: true,
     },
+    status: {
+        type: String,
+        enum: ["active", "completed"],
+        default: "active",
+    },
+    principalReturned: {
+        type: Boolean,
+        default: false,
+    },
     transactionId: {
         type: mongoose_1.Schema.Types.ObjectId,
         ref: "Transaction",

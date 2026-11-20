@@ -56,6 +56,15 @@ const ActiveDepositSchema = new Schema(
       type: Number,
       required: true,
     },
+    status: {
+      type: String,
+      enum: ["active", "completed"],
+      default: "active",
+    },
+    principalReturned: {
+      type: Boolean,
+      default: false,
+    },
     transactionId: {
       type: Schema.Types.ObjectId,
       ref: "Transaction",

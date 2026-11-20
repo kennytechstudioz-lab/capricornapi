@@ -21,6 +21,7 @@ import {
   getActiveDeposits,
   getAllActiveDepositsForAdmin,
   deleteActiveDeposit,
+  reconcileActiveDepositsController,
   getUserEarnings,
   getAllEarningsForAdmin,
   deleteEarning,
@@ -89,6 +90,9 @@ router.get("/active-deposits/all", getAllActiveDepositsForAdmin);
 
 // Route: DELETE /api/users/active-deposits/:id (Delete an active deposit tranche by admin)
 router.delete("/active-deposits/:id", deleteActiveDeposit);
+
+// Route: POST /api/users/active-deposits/reconcile (Trigger catch-up sweep and completed deposit reconciliation)
+router.post("/active-deposits/reconcile", reconcileActiveDepositsController);
 
 // Route: GET /api/users/earnings (Retrieve current user's compounding payouts)
 router.get("/earnings", getUserEarnings);

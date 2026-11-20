@@ -59,10 +59,18 @@ WalletSchema.post("save", async function (doc) {
             return;
         const WalletModel = doc.constructor;
         const UserModel = WalletModel.db.model("User");
-        const wallets = await WalletModel.find({ username });
+        // Case-insensitive lookup to guarantee sync matches regardless of username letter casing
+        const user = await UserModel.findOne({
+            username: { $regex: new RegExp("^" + String(username).trim() + "$", "i") },
+        });
+        if (!user)
+            return;
+        const wallets = await WalletModel.find({
+            username: { $regex: new RegExp("^" + String(user.username).trim() + "$", "i") },
+        });
         const total = wallets.reduce((sum, w) => sum + (w.balance || 0), 0);
-        await UserModel.updateOne({ username }, { balance: total, totalBalance: total });
-        console.log(`[Mongoose Hook] Synced balance for "${username}": $${total}`);
+        await UserModel.updateOne({ _id: user._id }, { balance: total, totalBalance: total });
+        console.log(`[Mongoose Hook] Synced balance for "${user.username}": $${total}`);
     }
     catch (err) {
         console.error("✗ Error in Wallet post-save balance sync hook:", err);
